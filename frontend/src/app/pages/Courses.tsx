@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Search, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router';
 import { api } from '../../api/client';
+import { CourseCoverMedia, isCourseCoverImagePath } from '../components/CourseCoverMedia';
 
 interface CourseRow {
   id: number;
@@ -107,8 +108,14 @@ export default function Courses() {
             key={course.id}
             className="bg-card rounded-xl border border-border overflow-hidden shadow-sm hover:shadow-lg transition-all group"
           >
-            <div className="h-40 bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center text-6xl">
-              {course.image}
+            <div
+              className={`h-40 overflow-hidden ${
+                isCourseCoverImagePath(course.image)
+                  ? 'bg-muted'
+                  : 'bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center text-6xl'
+              }`}
+            >
+              <CourseCoverMedia image={course.image} variant="gridCard" />
             </div>
             <div className="p-6 space-y-4">
               <div>

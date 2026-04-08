@@ -5,6 +5,7 @@ export async function runMigrationsPg(pool) {
     'ALTER TABLE lessons ADD COLUMN IF NOT EXISTS slide_file_path TEXT',
     'ALTER TABLE materials ADD COLUMN IF NOT EXISTS file_path TEXT',
     'ALTER TABLE tests ADD COLUMN IF NOT EXISTS external_url TEXT',
+    'ALTER TABLE courses ADD COLUMN IF NOT EXISTS cover_image_path TEXT',
   ];
   for (const sql of stmts) {
     await pool.query(sql);
@@ -20,6 +21,7 @@ export function runMigrationsSqlite(pool) {
     'ALTER TABLE lessons ADD COLUMN slide_file_path TEXT',
     'ALTER TABLE materials ADD COLUMN file_path TEXT',
     'ALTER TABLE tests ADD COLUMN external_url TEXT',
+    'ALTER TABLE courses ADD COLUMN cover_image_path TEXT',
   ];
   for (const sql of stmts) {
     try {

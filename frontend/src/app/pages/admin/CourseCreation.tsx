@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useApp } from '../../context/AppContext';
-import { Plus, Trash2, Upload, Save, BookOpen, FileText, ClipboardList, ListChecks, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Upload, Save, BookOpen, FileText, ClipboardList, ListChecks, ChevronUp, ChevronDown, ImageIcon } from 'lucide-react';
 import { api, apiForm, fileUrl } from '../../../api/client';
 
 function formatBytes(n: number) {
@@ -190,6 +190,7 @@ export default function CourseCreation() {
   const [assignments, setAssignments] = useState<EditorAssignment[]>([]);
   const [loading, setLoading] = useState(false);
   const [section, setSection] = useState<'meta' | 'lessons' | 'materials' | 'tests' | 'assignments'>('meta');
+  const [coverImagePath, setCoverImagePath] = useState('');
 
   const [testForm, setTestForm] = useState({
     title: '',
@@ -210,6 +211,7 @@ export default function CourseCreation() {
           title: string;
           description: string;
           durationWeeks: number;
+          coverImagePath?: string;
         };
         lessons: EditorLesson[];
         materials: EditorMaterial[];
@@ -221,6 +223,7 @@ export default function CourseCreation() {
         description: raw.course.description,
         durationWeeks: raw.course.durationWeeks,
       });
+      setCoverImagePath(raw.course.coverImagePath || '');
       setLessons(raw.lessons);
       setMaterials(raw.materials);
       setTests(raw.tests);
@@ -244,6 +247,7 @@ export default function CourseCreation() {
           title: string;
           description: string;
           durationWeeks: number;
+          coverImagePath?: string;
         }>('/api/admin/courses/' + id + '/raw');
         if (c) return;
         setFormData({
@@ -251,6 +255,7 @@ export default function CourseCreation() {
           description: raw.description,
           durationWeeks: raw.durationWeeks,
         });
+        setCoverImagePath(raw.coverImagePath || '');
       } catch {
         /* */
       }
@@ -259,6 +264,29 @@ export default function CourseCreation() {
       c = true;
     };
   }, [id]);
+
+  const uploadCover = async (file: File) => {
+    if (!isEditing) return;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await apiForm<{ url: string }>('/api/admin/courses/' + courseId + '/cover', fd);
+      await load();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Error');
+    }
+  };
+
+  const removeCover = async () => {
+    if (!isEditing) return;
+    try {
+      await api('/api/admin/courses/' + courseId + '/cover', { method: 'DELETE' });
+      setCoverImagePath('');
+      await load();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Error');
+    }
+  };
 
   const handleSaveMeta = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -543,6 +571,50 @@ export default function CourseCreation() {
                 className="w-full px-4 py-3 rounded-lg border border-border bg-background"
               />
             </div>
+
+            {isEditing ? (
+              <div className="space-y-3 pt-2 border-t border-border">
+                <div className="flex items-center gap-2 text-foreground">
+                  <ImageIcon className="w-5 h-5 text-primary" />
+                  <span className="font-medium">{t('courseCover')}</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{t('courseCoverHint')}</p>
+                <div className="flex flex-wrap items-end gap-4">
+                  {coverImagePath ? (
+                    <div className="h-28 w-44 rounded-xl border border-border overflow-hidden bg-muted shrink-0 shadow-inner">
+                      <img src={fileUrl(coverImagePath)} alt="" className="h-full w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="h-28 w-44 rounded-xl border border-dashed border-border bg-muted/50 flex items-center justify-center text-muted-foreground text-sm">
+                      —
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border cursor-pointer hover:bg-accent text-sm">
+                      <Upload className="w-4 h-4" />
+                      {t('uploadCover')}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,image/avif,image/bmp,image/x-icon,.jpg,.jpeg,.png,.webp,.gif,.svg,.avif,.bmp,.ico"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void uploadCover(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {coverImagePath ? (
+                      <button type="button" onClick={() => void removeCover()} className="text-sm text-destructive hover:underline">
+                        {t('removeCover')}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground border-t border-border pt-4">{t('courseCoverSaveFirst')}</p>
+            )}
           </div>
           <div className="flex gap-4">
             <button type="submit" className="px-6 py-3 rounded-lg bg-primary text-primary-foreground">

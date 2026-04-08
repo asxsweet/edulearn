@@ -181,7 +181,6 @@ export default function AIAssistant() {
               <div>
                 <h1 className="text-foreground text-xl font-semibold tracking-tight">{t('aiAssistant')}</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
-                <p className="text-xs text-muted-foreground/80 mt-2 max-w-xl">{t('aiDemoNotice')}</p>
               </div>
             </div>
             <button

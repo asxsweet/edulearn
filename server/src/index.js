@@ -114,6 +114,47 @@ const submissionUpload = multer({
   limits: { fileSize: 80 * 1024 * 1024 },
 });
 
+/** Курс карточкасында: обложка жолы болса соны, әйтпесе emoji. */
+function courseDisplayImage(row) {
+  const cover = row.cover_image_path != null ? String(row.cover_image_path).trim() : '';
+  if (cover) return cover;
+  return row.image_emoji || '📚';
+}
+
+const COVER_EXT_BY_MIME = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/svg+xml': '.svg',
+  'image/avif': '.avif',
+  'image/bmp': '.bmp',
+  'image/x-icon': '.ico',
+  'image/vnd.microsoft.icon': '.ico',
+};
+
+const coverImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const courseId = req.params.courseId;
+      const dir = path.join(uploadsRoot, 'courses', String(courseId));
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      file.originalname = decodeUploadFilename(file.originalname);
+      const ext = COVER_EXT_BY_MIME[file.mimetype] || path.extname(file.originalname) || '.jpg';
+      cb(null, `cover${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//i.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
 function timeAgoLabel(dateInput) {
   if (!dateInput) return 'justNow';
   const d = new Date(dateInput);
@@ -658,7 +699,7 @@ app.get('/api/courses', authMiddleware, requireRole('student'), async (req, res)
   const rows = await stmt(
     pool,
     `
-    SELECT c.id, c.title, c.description, c.image_emoji, c.duration_weeks,
+    SELECT c.id, c.title, c.description, c.image_emoji, c.cover_image_path, c.duration_weeks,
       e.progress, CASE WHEN e.user_id IS NOT NULL THEN 1 ELSE 0 END AS enrolled,
       (SELECT CAST(COUNT(*) AS INTEGER) FROM lessons l WHERE l.course_id = c.id) AS total_lessons,
       (SELECT CAST(COUNT(*) AS INTEGER) FROM lesson_progress lp JOIN lessons l ON l.id = lp.lesson_id
@@ -682,7 +723,7 @@ app.get('/api/courses', authMiddleware, requireRole('student'), async (req, res)
       id: r.id,
       title: r.title,
       description: r.description,
-      image: r.image_emoji,
+      image: courseDisplayImage(r),
       progress,
       enrolled: isEnrolled,
       lessons: totalLessons,
@@ -778,7 +819,7 @@ app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, 
       id: c.id,
       title: c.title,
       description: c.description,
-      image: c.image_emoji,
+      image: courseDisplayImage(c),
       lessonCount: lessons.length,
       durationWeeks: c.duration_weeks,
       enrolled: isEnrolled,
@@ -1148,6 +1189,7 @@ app.get('/api/admin/courses/:id/raw', authMiddleware, requireRole('admin'), asyn
     description: c.description,
     durationWeeks: c.duration_weeks,
     status: c.status,
+    coverImagePath: c.cover_image_path || '',
   });
 });
 
@@ -1211,6 +1253,40 @@ app.post(
   }
 );
 
+app.post(
+  '/api/admin/courses/:courseId/cover',
+  authMiddleware,
+  requireRole('admin'),
+  coverImageUpload.single('file'),
+  async (req, res) => {
+    const courseId = Number(req.params.courseId);
+    const co = await stmt(pool, 'SELECT id FROM courses WHERE id = ?').get(courseId);
+    if (!co) return res.status(404).json({ error: 'Course not found' });
+    if (!req.file) return res.status(400).json({ error: 'file required' });
+    const url = `/uploads/courses/${courseId}/${req.file.filename}`;
+    await stmt(pool, `UPDATE courses SET cover_image_path = ? WHERE id = ?`).run(url, courseId);
+    res.json({ url });
+  }
+);
+
+app.delete('/api/admin/courses/:courseId/cover', authMiddleware, requireRole('admin'), async (req, res) => {
+  const courseId = Number(req.params.courseId);
+  const row = await stmt(pool, 'SELECT cover_image_path FROM courses WHERE id = ?').get(courseId);
+  if (!row) return res.status(404).json({ error: 'Course not found' });
+  const p = row.cover_image_path;
+  if (p && String(p).startsWith('/uploads/')) {
+    const rel = String(p).replace(/^\/uploads\//, '');
+    const fp = path.join(uploadsRoot, rel);
+    try {
+      fs.unlinkSync(fp);
+    } catch {
+      /* */
+    }
+  }
+  await stmt(pool, `UPDATE courses SET cover_image_path = NULL WHERE id = ?`).run(courseId);
+  res.json({ ok: true });
+});
+
 app.get('/api/admin/courses/:id/editor', authMiddleware, requireRole('admin'), async (req, res) => {
   const courseId = Number(req.params.id);
   const c = await stmt(pool, `SELECT * FROM courses WHERE id = ?`).get(courseId);
@@ -1243,6 +1319,7 @@ app.get('/api/admin/courses/:id/editor', authMiddleware, requireRole('admin'), a
       description: c.description,
       durationWeeks: c.duration_weeks,
       status: c.status,
+      coverImagePath: c.cover_image_path || '',
     },
     lessons: lessonRows.map((l) => ({
       id: l.id,

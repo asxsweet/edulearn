@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { api, apiForm, fileUrl } from '../../api/client';
+import { CourseCoverMedia } from '../components/CourseCoverMedia';
 
 function youtubeEmbedUrl(url: string): string | null {
   if (!url?.trim()) return null;
@@ -169,7 +170,7 @@ export default function CourseDetail() {
     <div className="flex h-[calc(100vh-8rem)] -mx-4 sm:-mx-6 lg:-mx-8">
       <aside className="w-80 border-r border-border bg-card overflow-y-auto flex-shrink-0">
         <div className="p-6 border-b border-border">
-          <div className="text-4xl mb-4">{course.image}</div>
+          <CourseCoverMedia image={course.image} variant="detailAside" />
           <h2 className="text-foreground mb-2">{course.title}</h2>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span>

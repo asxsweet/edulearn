@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS courses (
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   image_emoji TEXT NOT NULL DEFAULT '📚',
+  cover_image_path TEXT,
   duration_weeks INTEGER NOT NULL DEFAULT 6,
   status TEXT NOT NULL DEFAULT 'active',
   deadline_date TEXT,
