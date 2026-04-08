@@ -1,0 +1,21 @@
+# Render Blueprint: Web Service for Node API + link to PostgreSQL from the dashboard.
+# Create a PostgreSQL instance in Render, copy Internal/External DATABASE_URL, then set env vars below.
+services:
+  - type: web
+    name: edulearn-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PGSSLMODE
+        value: require
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
