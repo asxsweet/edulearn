@@ -59,11 +59,23 @@ const submissionUpload = multer({
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const ALLOWED_ORIGINS = CLIENT_ORIGIN.split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const pool = await initDatabase();
 
 const app = express();
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: true }));
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Allow non-browser requests (no Origin header) and listed origins.
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(uploadsRoot));
 
