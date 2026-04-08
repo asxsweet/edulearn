@@ -6,7 +6,6 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { initDatabase } from './db.js';
@@ -25,6 +24,36 @@ function fileBasename(p) {
   return parts[parts.length - 1] || '';
 }
 
+function decodeUploadFilename(originalname) {
+  try {
+    return Buffer.from(String(originalname || ''), 'latin1').toString('utf8').normalize('NFC');
+  } catch {
+    return String(originalname || '').normalize('NFC');
+  }
+}
+
+function sanitizeFilename(name) {
+  const normalized = decodeUploadFilename(name);
+  const base = fileBasename(normalized)
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return base || 'file';
+}
+
+function uniqueFilenameInDir(dir, originalName) {
+  const safe = sanitizeFilename(originalName);
+  const ext = path.extname(safe);
+  const stem = safe.slice(0, safe.length - ext.length) || 'file';
+  let candidate = `${stem}${ext}`;
+  let i = 1;
+  while (fs.existsSync(path.join(dir, candidate))) {
+    candidate = `${stem} (${i})${ext}`;
+    i += 1;
+  }
+  return candidate;
+}
+
 const adminUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -34,8 +63,10 @@ const adminUpload = multer({
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname) || '';
-      cb(null, `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${ext}`);
+      const courseId = req.params.courseId;
+      const dir = path.join(uploadsRoot, 'courses', String(courseId));
+      file.originalname = decodeUploadFilename(file.originalname);
+      cb(null, uniqueFilenameInDir(dir, file.originalname));
     },
   }),
   limits: { fileSize: 80 * 1024 * 1024 },
@@ -49,8 +80,9 @@ const submissionUpload = multer({
       cb(null, dir);
     },
     filename: (req, file, cb) => {
-      const ext = path.extname(file.originalname) || '';
-      cb(null, `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${ext}`);
+      const dir = path.join(uploadsRoot, 'submissions');
+      file.originalname = decodeUploadFilename(file.originalname);
+      cb(null, uniqueFilenameInDir(dir, file.originalname));
     },
   }),
   limits: { fileSize: 80 * 1024 * 1024 },
