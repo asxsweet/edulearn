@@ -20,6 +20,7 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const uploadsRoot = path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(path.join(uploadsRoot, 'courses'), { recursive: true });
 fs.mkdirSync(path.join(uploadsRoot, 'submissions'), { recursive: true });
+fs.mkdirSync(path.join(uploadsRoot, 'avatars'), { recursive: true });
 
 function fileBasename(p) {
   if (!p) return '';
@@ -154,6 +155,39 @@ const coverImageUpload = multer({
     else cb(new Error('Only image files are allowed'));
   },
 });
+
+const avatarUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uid = req.user?.sub;
+      const dir = path.join(uploadsRoot, 'avatars', String(uid));
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      file.originalname = decodeUploadFilename(file.originalname);
+      const ext = COVER_EXT_BY_MIME[file.mimetype] || path.extname(file.originalname) || '.jpg';
+      cb(null, `avatar${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//i.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
+function deleteAvatarFileIfExists(avatarPath) {
+  const p = avatarPath && String(avatarPath).trim();
+  if (!p || !p.startsWith('/uploads/avatars/')) return;
+  const rel = p.replace(/^\/uploads\//, '');
+  const fp = path.join(uploadsRoot, rel);
+  try {
+    fs.unlinkSync(fp);
+  } catch {
+    /* */
+  }
+}
 
 function timeAgoLabel(dateInput) {
   if (!dateInput) return 'justNow';
@@ -468,6 +502,27 @@ async function recomputeEnrollmentProgress(userId, courseId) {
   const done = Number(doneRow?.n || 0);
   const progress = total > 0 ? Math.round((done / total) * 100) : 0;
   await stmt(pool, 'UPDATE enrollments SET progress = ? WHERE user_id = ? AND course_id = ?').run(progress, userId, courseId);
+  if (progress === 100) {
+    const c = await stmt(pool, 'SELECT title FROM courses WHERE id = ?').get(courseId);
+    if (c) {
+      await stmt(pool, 'DELETE FROM profile_completed_courses WHERE user_id = ? AND course_id = ?').run(userId, courseId);
+      const gRow = await stmt(
+        pool,
+        `SELECT AVG(ta.score) AS a FROM test_attempts ta JOIN tests t ON t.id = ta.test_id WHERE ta.user_id = ? AND t.course_id = ? AND ta.score IS NOT NULL`
+      ).get(userId, courseId);
+      const grade = gRow?.a != null ? Math.round(Number(gRow.a)) : 100;
+      const today = new Date().toISOString().slice(0, 10);
+      await stmt(pool, `INSERT INTO profile_completed_courses (user_id, course_id, title, completed_date, grade) VALUES (?,?,?,?,?)`).run(
+        userId,
+        courseId,
+        c.title,
+        today,
+        grade
+      );
+    }
+  } else {
+    await stmt(pool, 'DELETE FROM profile_completed_courses WHERE user_id = ? AND course_id = ?').run(userId, courseId);
+  }
   return { total, done, progress };
 }
 
@@ -666,7 +721,7 @@ app.get('/api/student/dashboard', authMiddleware, requireRole('student'), async 
   const avgScorePct = avgRow.a != null ? Math.round(Number(avgRow.a)) : 0;
 
   const certificates = Number(
-    (await stmt(pool, 'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM profile_completed_courses WHERE user_id = ?').get(uid)).n
+    (await stmt(pool, 'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE user_id = ? AND progress = 100').get(uid)).n
   );
 
   const weeklyActivity = await buildWeeklyActivityFromSubmissions(uid, pool);
@@ -993,11 +1048,14 @@ app.get('/api/ai/suggestions', authMiddleware, requireRole('student'), async (re
 
 app.get('/api/profile', authMiddleware, requireRole('student'), async (req, res) => {
   const uid = req.user.sub;
-  const u = await stmt(pool, `SELECT name, student_code, grade_label FROM users WHERE id = ?`).get(uid);
-  const completed = await stmt(pool, `SELECT title, completed_date AS "completedDate", grade FROM profile_completed_courses WHERE user_id = ?`).all(uid);
+  const u = await stmt(pool, `SELECT name, student_code, grade_label, bio, avatar_path FROM users WHERE id = ?`).get(uid);
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  const completed = await stmt(pool, `SELECT title, completed_date AS "completedDate", grade FROM profile_completed_courses WHERE user_id = ? ORDER BY completed_date DESC`).all(uid);
 
   const enrolled = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE user_id = ?`).get(uid)).n);
-  const completedCount = completed.length;
+  const completedCount = Number(
+    (await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE user_id = ? AND progress = 100`).get(uid)).n
+  );
   const inProgress = Number(
     (await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE user_id = ? AND progress > 0 AND progress < 100`).get(uid)).n
   );
@@ -1006,7 +1064,14 @@ app.get('/api/profile', authMiddleware, requireRole('student'), async (req, res)
   );
 
   const avg = await stmt(pool, `SELECT AVG(grade) AS a FROM profile_completed_courses WHERE user_id = ?`).get(uid);
-  const avgScore = avg.a != null ? `${Math.round(Number(avg.a))}%` : '0%';
+  let avgScore = '0%';
+  if (avg?.a != null) avgScore = `${Math.round(Number(avg.a))}%`;
+  else {
+    const avgTests = await stmt(pool, `SELECT AVG(score) AS a FROM test_attempts WHERE user_id = ? AND score IS NOT NULL`).get(uid);
+    if (avgTests?.a != null) avgScore = `${Math.round(Number(avgTests.a))}%`;
+  }
+
+  const avatarUrl = u.avatar_path && String(u.avatar_path).trim() ? String(u.avatar_path).trim() : null;
 
   const learningDaysCount = await countDistinctSubmissionDays(uid, pool);
 
@@ -1024,11 +1089,58 @@ app.get('/api/profile', authMiddleware, requireRole('student'), async (req, res)
   ];
 
   res.json({
-    user: u,
+    user: {
+      name: u.name,
+      student_code: u.student_code,
+      grade_label: u.grade_label,
+      bio: u.bio != null ? String(u.bio) : '',
+      avatarUrl,
+    },
     completedCourses: completed,
     progressData,
     stats,
   });
+});
+
+app.patch('/api/profile', authMiddleware, requireRole('student'), async (req, res) => {
+  const uid = req.user.sub;
+  const { bio } = req.body || {};
+  if (bio != null && typeof bio !== 'string') return res.status(400).json({ error: 'bio must be a string' });
+  const text = bio != null ? String(bio).slice(0, 2000) : null;
+  if (text != null) {
+    await stmt(pool, `UPDATE users SET bio = ? WHERE id = ?`).run(text, uid);
+  }
+  const row = await stmt(pool, `SELECT bio FROM users WHERE id = ?`).get(uid);
+  res.json({ bio: row?.bio != null ? String(row.bio) : '' });
+});
+
+app.post(
+  '/api/profile/avatar',
+  authMiddleware,
+  requireRole('student'),
+  (req, res, next) => {
+    avatarUpload.single('avatar')(req, res, (err) => {
+      if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+      next();
+    });
+  },
+  async (req, res) => {
+    const uid = req.user.sub;
+    if (!req.file) return res.status(400).json({ error: 'avatar file required' });
+    const prev = await stmt(pool, `SELECT avatar_path FROM users WHERE id = ?`).get(uid);
+    if (prev?.avatar_path) deleteAvatarFileIfExists(prev.avatar_path);
+    const url = `/uploads/avatars/${uid}/${req.file.filename}`;
+    await stmt(pool, `UPDATE users SET avatar_path = ? WHERE id = ?`).run(url, uid);
+    res.json({ avatarUrl: url });
+  }
+);
+
+app.delete('/api/profile/avatar', authMiddleware, requireRole('student'), async (req, res) => {
+  const uid = req.user.sub;
+  const row = await stmt(pool, `SELECT avatar_path FROM users WHERE id = ?`).get(uid);
+  if (row?.avatar_path) deleteAvatarFileIfExists(row.avatar_path);
+  await stmt(pool, `UPDATE users SET avatar_path = NULL WHERE id = ?`).run(uid);
+  res.json({ avatarUrl: null });
 });
 
 app.patch('/api/me', authMiddleware, async (req, res) => {
@@ -1509,16 +1621,20 @@ app.delete('/api/admin/assignments/:assignmentId', authMiddleware, requireRole('
 });
 
 app.get('/api/admin/students', authMiddleware, requireRole('admin'), async (req, res) => {
-  const rows = await stmt(pool, `SELECT id, name, email FROM users WHERE role = 'student' ORDER BY id`).all();
+  const rows = await stmt(pool, `SELECT id, name, email, avatar_path FROM users WHERE role = 'student' ORDER BY id`).all();
   const out = [];
   for (const s of rows) {
     const enrolledCourses = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE user_id = ?`).get(s.id)).n);
-    const completedCourses = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM profile_completed_courses WHERE user_id = ?`).get(s.id)).n);
+    const completedCourses = Number(
+      (await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE user_id = ? AND progress = 100`).get(s.id)).n
+    );
     const avgRow = await stmt(pool, `SELECT AVG(score) AS a FROM test_attempts WHERE user_id = ? AND score IS NOT NULL`).get(s.id);
+    const ap = s.avatar_path && String(s.avatar_path).trim() ? String(s.avatar_path).trim() : null;
     out.push({
       id: s.id,
       name: s.name,
       email: s.email,
+      avatarUrl: ap,
       enrolledCourses,
       completedCourses,
       averageScore: avgRow.a != null ? Math.round(Number(avgRow.a)) : 0,
@@ -1526,6 +1642,16 @@ app.get('/api/admin/students', authMiddleware, requireRole('admin'), async (req,
     });
   }
   res.json(out);
+});
+
+app.delete('/api/admin/students/:studentId', authMiddleware, requireRole('admin'), async (req, res) => {
+  const sid = Number(req.params.studentId);
+  if (!Number.isFinite(sid)) return res.status(400).json({ error: 'Invalid id' });
+  const row = await stmt(pool, `SELECT id, role, avatar_path FROM users WHERE id = ?`).get(sid);
+  if (!row || row.role !== 'student') return res.status(404).json({ error: 'Not found' });
+  if (row.avatar_path) deleteAvatarFileIfExists(row.avatar_path);
+  await stmt(pool, `DELETE FROM users WHERE id = ? AND role = 'student'`).run(sid);
+  res.json({ ok: true });
 });
 
 app.get('/api/admin/students/:studentId/progress', authMiddleware, requireRole('admin'), async (req, res) => {

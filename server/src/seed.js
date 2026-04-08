@@ -197,25 +197,6 @@ export async function runSeed(pool) {
     await insWA.run(aliceId, days[i], hours[i], i);
   }
 
-  await stmt(pool, `INSERT INTO profile_completed_courses (user_id, title, completed_date, grade) VALUES (?,?,?,?)`).run(
-    aliceId,
-    'Python Programming Basics',
-    '2026-02-15',
-    95
-  );
-  await stmt(pool, `INSERT INTO profile_completed_courses (user_id, title, completed_date, grade) VALUES (?,?,?,?)`).run(
-    aliceId,
-    'Data Structures',
-    '2026-03-10',
-    88
-  );
-  await stmt(pool, `INSERT INTO profile_completed_courses (user_id, title, completed_date, grade) VALUES (?,?,?,?)`).run(
-    aliceId,
-    'Introduction to Algorithms',
-    '2026-03-28',
-    92
-  );
-
   const insTrend = stmt(pool, `INSERT INTO enrollment_trend (month_label, student_count) VALUES (?,?)`);
   const trendMonths = ['Jan', 'Feb', 'Mar', 'Apr'];
   const trendCounts = [180, 200, 225, 245];

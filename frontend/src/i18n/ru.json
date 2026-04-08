@@ -204,5 +204,13 @@
   "gradingPending": "Ожидается оценка преподавателя",
   "assignmentNotSubmitted": "Не отправлено",
   "yourGrade": "Ваша оценка",
-  "teacherFeedback": "Комментарий преподавателя"
+  "teacherFeedback": "Комментарий преподавателя",
+  "profileBio": "О себе",
+  "profileBioPlaceholder": "Расскажите о своих интересах и целях…",
+  "profileAvatarHint": "JPG, PNG, WebP, GIF, SVG, AVIF, BMP, ICO — до 8 МБ.",
+  "removeAvatar": "Удалить фото",
+  "avatarImageOnly": "Выберите файл изображения.",
+  "deleteStudent": "Удалить студента",
+  "deleteStudentConfirm": "Удалить этого студента безвозвратно? Записи на курсы и работы будут удалены.",
+  "noCompletedCoursesYet": "Пока нет завершённых курсов. Завершите все уроки курса, чтобы увидеть его здесь."
 }

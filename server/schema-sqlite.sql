@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL CHECK (role IN ('student', 'admin')),
   student_code TEXT,
   grade_label TEXT,
+  avatar_path TEXT,
+  bio TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   notifications_enabled INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -122,6 +124,7 @@ CREATE TABLE IF NOT EXISTS weekly_activity (
 CREATE TABLE IF NOT EXISTS profile_completed_courses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  course_id INTEGER REFERENCES courses (id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   completed_date TEXT NOT NULL,
   grade INTEGER NOT NULL

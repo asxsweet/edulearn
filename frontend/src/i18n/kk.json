@@ -204,5 +204,13 @@
   "gradingPending": "Мұғалім бағасын күтуде",
   "assignmentNotSubmitted": "Жіберілмеген",
   "yourGrade": "Сіздің бағаңыз",
-  "teacherFeedback": "Мұғалімнің пікірі"
+  "teacherFeedback": "Мұғалімнің пікірі",
+  "profileBio": "Өзіңіз туралы",
+  "profileBioPlaceholder": "Қызығушылықтарыңыз бен мақсаттарыңыз туралы жазыңыз…",
+  "profileAvatarHint": "JPG, PNG, WebP, GIF, SVG, AVIF, BMP, ICO — ең көбі 8 МБ.",
+  "removeAvatar": "Фотоны жою",
+  "avatarImageOnly": "Тек сурет файлын таңдаңыз.",
+  "deleteStudent": "Студентті жою",
+  "deleteStudentConfirm": "Бұл студентті толығымен жою керек пе? Тіркелулер мен жіберулер де жойылады.",
+  "noCompletedCoursesYet": "Әлі аяқталған курс жоқ. Курстағы барлық сабақтарды аяқтағанда осы жерде көрінеді."
 }

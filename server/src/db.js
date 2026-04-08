@@ -45,7 +45,7 @@ async function initSqlite(dbPath) {
   const schemaPath = path.join(__dirname, '..', 'schema-sqlite.sql');
   const sql = fs.readFileSync(schemaPath, 'utf8');
   pool.exec(sql);
-  runMigrationsSqlite(pool);
+  await runMigrationsSqlite(pool);
   await runSeed(pool);
   console.log(`Database: SQLite (${dbPath})`);
   return pool;

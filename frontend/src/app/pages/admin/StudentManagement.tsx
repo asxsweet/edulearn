@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Search, Eye, TrendingUp, Award } from 'lucide-react';
+import { Search, Eye, TrendingUp, Award, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api } from '../../../api/client';
+import { api, fileUrl } from '../../../api/client';
 
 interface StudentRow {
   id: number;
   name: string;
   email: string;
+  avatarUrl: string | null;
   enrolledCourses: number;
   completedCourses: number;
   averageScore: number;
@@ -18,6 +19,20 @@ export default function StudentManagement() {
   const { t } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const removeStudent = async (student: StudentRow) => {
+    if (!window.confirm(t('deleteStudentConfirm'))) return;
+    setDeletingId(student.id);
+    try {
+      await api(`/api/admin/students/${student.id}`, { method: 'DELETE' });
+      setStudents((prev) => prev.filter((s) => s.id !== student.id));
+    } catch {
+      /* */
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     let c = false;
@@ -62,8 +77,12 @@ export default function StudentManagement() {
         {filteredStudents.map((student) => (
           <div key={student.id} className="bg-card rounded-xl p-6 border border-border shadow-sm space-y-4">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center text-white text-xl">
-                {student.name[0]}
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center text-white text-xl overflow-hidden shrink-0">
+                {student.avatarUrl ? (
+                  <img src={fileUrl(student.avatarUrl)} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  student.name[0]
+                )}
               </div>
               <div className="flex-1">
                 <h3 className="text-foreground mb-1">{student.name}</h3>
@@ -88,18 +107,29 @@ export default function StudentManagement() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-border">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-border">
               <div>
                 <p className="text-sm text-muted-foreground">{t('averageScoreStat')}</p>
                 <p className="text-foreground">{student.averageScore}%</p>
               </div>
-              <Link
-                to={'/admin/students/' + student.id}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-              >
-                <Eye className="w-4 h-4" />
-                {t('viewProgress')}
-              </Link>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={deletingId === student.id}
+                  onClick={() => removeStudent(student)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/50 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  {t('deleteStudent')}
+                </button>
+                <Link
+                  to={'/admin/students/' + student.id}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                >
+                  <Eye className="w-4 h-4" />
+                  {t('viewProgress')}
+                </Link>
+              </div>
             </div>
           </div>
         ))}

@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { User, Award, BookOpen, TrendingUp, Calendar } from 'lucide-react';
+import { User, Award, BookOpen, TrendingUp, Calendar, Camera, Trash2 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { api } from '../../api/client';
+import { api, apiForm, fileUrl } from '../../api/client';
 
 interface ProfilePayload {
-  user: { name: string; student_code: string; grade_label: string };
+  user: {
+    name: string;
+    student_code: string;
+    grade_label: string;
+    bio: string;
+    avatarUrl: string | null;
+  };
   completedCourses: Array<{ title: string; completedDate: string; grade: number }>;
   progressData: Array<{ labelKey: string; value: number; color: string }>;
   stats: Array<{ labelKey: string; value: string; color: string }>;
@@ -28,13 +34,20 @@ const statVisual: Record<string, { box: string; icon: string }> = {
 export default function Profile() {
   const { t } = useApp();
   const [data, setData] = useState<ProfilePayload | null>(null);
+  const [bioDraft, setBioDraft] = useState('');
+  const [savingBio, setSavingBio] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const d = await api<ProfilePayload>('/api/profile');
-        if (!cancelled) setData(d);
+        if (!cancelled) {
+          setData(d);
+          setBioDraft(d.user.bio || '');
+        }
       } catch {
         /* */
       }
@@ -43,6 +56,75 @@ export default function Profile() {
       cancelled = true;
     };
   }, []);
+
+  const saveBio = async () => {
+    if (!data) return;
+    setSavingBio(true);
+    setProfileError(null);
+    try {
+      await api<{ bio: string }>('/api/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ bio: bioDraft }),
+      });
+      const d = await api<ProfilePayload>('/api/profile');
+      setData(d);
+      setBioDraft(d.user.bio || '');
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : t('unknownError'));
+    } finally {
+      setSavingBio(false);
+    }
+  };
+
+  const onAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !data) return;
+    if (!/^image\//i.test(file.type)) {
+      setProfileError(t('avatarImageOnly'));
+      return;
+    }
+    setUploadingAvatar(true);
+    setProfileError(null);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      const res = await apiForm<{ avatarUrl: string }>('/api/profile/avatar', fd);
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              user: { ...prev.user, avatarUrl: res.avatarUrl },
+            }
+          : prev
+      );
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : t('unknownError'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    if (!data?.user.avatarUrl) return;
+    setUploadingAvatar(true);
+    setProfileError(null);
+    try {
+      const res = await api<{ avatarUrl: string | null }>('/api/profile/avatar', { method: 'DELETE' });
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              user: { ...prev.user, avatarUrl: res.avatarUrl },
+            }
+          : prev
+      );
+    } catch (e) {
+      setProfileError(e instanceof Error ? e.message : t('unknownError'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   if (!data) {
     return <div className="p-8 text-muted-foreground">{t('loading')}</div>;
@@ -55,20 +137,74 @@ export default function Profile() {
     color: p.color,
   }));
 
+  const avatarSrc = user.avatarUrl ? fileUrl(user.avatarUrl) : '';
+
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-8">
       <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
         <div className="h-32 bg-gradient-to-br from-[#6366f1] to-[#8b5cf6]" />
         <div className="p-6 -mt-16 relative">
-          <div className="flex items-end gap-6">
-            <div className="w-32 h-32 rounded-2xl bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] border-4 border-card flex items-center justify-center shadow-lg">
-              <User className="w-16 h-16 text-white" />
+          <div className="flex flex-col sm:flex-row sm:items-end gap-6">
+            <div className="relative shrink-0">
+              <div className="w-32 h-32 rounded-2xl border-4 border-card shadow-lg overflow-hidden bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center">
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-16 h-16 text-white" />
+                )}
+              </div>
+              <label className="absolute bottom-1 right-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-card border border-border shadow-md hover:bg-accent">
+                <Camera className="w-4 h-4 text-foreground" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploadingAvatar}
+                  onChange={onAvatarChange}
+                />
+              </label>
             </div>
-            <div className="flex-1 pb-4">
-              <h1 className="text-foreground mb-1">{user.name}</h1>
-              <p className="text-muted-foreground">
-                {user.grade_label} • ID: {user.student_code}
-              </p>
+            <div className="flex-1 pb-4 space-y-3 min-w-0">
+              <div>
+                <h1 className="text-foreground mb-1">{user.name}</h1>
+                <p className="text-muted-foreground">
+                  {user.grade_label} • ID: {user.student_code}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground">{t('profileBio')}</label>
+                <textarea
+                  value={bioDraft}
+                  onChange={(e) => setBioDraft(e.target.value)}
+                  placeholder={t('profileBioPlaceholder')}
+                  rows={4}
+                  maxLength={2000}
+                  className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y min-h-[96px]"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={saveBio}
+                    disabled={savingBio}
+                    className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:opacity-90 disabled:opacity-50"
+                  >
+                    {savingBio ? t('loading') : t('save')}
+                  </button>
+                  {user.avatarUrl ? (
+                    <button
+                      type="button"
+                      onClick={removeAvatar}
+                      disabled={uploadingAvatar}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      {t('removeAvatar')}
+                    </button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">{t('profileAvatarHint')}</p>
+                {profileError ? <p className="text-sm text-destructive">{profileError}</p> : null}
+              </div>
             </div>
           </div>
         </div>
@@ -98,25 +234,29 @@ export default function Profile() {
         <div className="lg:col-span-2 bg-card rounded-xl p-6 border border-border shadow-sm">
           <h2 className="text-foreground mb-6">{t('completedCourses')}</h2>
           <div className="space-y-4">
-            {completedCourses.map((course, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-4 rounded-xl bg-accent border border-border"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center">
-                    <Award className="w-6 h-6 text-white" />
+            {completedCourses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('noCompletedCoursesYet')}</p>
+            ) : (
+              completedCourses.map((course, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-4 rounded-xl bg-accent border border-border"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] flex items-center justify-center">
+                      <Award className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="text-foreground mb-1">{course.title}</h4>
+                      <p className="text-sm text-muted-foreground">{course.completedDate}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-foreground mb-1">{course.title}</h4>
-                    <p className="text-sm text-muted-foreground">{course.completedDate}</p>
+                  <div className="text-right">
+                    <div className="px-3 py-1 rounded-full bg-green-500/10 text-green-500">{course.grade}%</div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="px-3 py-1 rounded-full bg-green-500/10 text-green-500">{course.grade}%</div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 

@@ -204,5 +204,13 @@
   "gradingPending": "Waiting for instructor grade",
   "assignmentNotSubmitted": "Not submitted",
   "yourGrade": "Your grade",
-  "teacherFeedback": "Instructor feedback"
+  "teacherFeedback": "Instructor feedback",
+  "profileBio": "About you",
+  "profileBioPlaceholder": "Tell others about your interests and goals…",
+  "profileAvatarHint": "JPG, PNG, WebP, GIF, SVG, AVIF, BMP, ICO — max 8 MB.",
+  "removeAvatar": "Remove photo",
+  "avatarImageOnly": "Please choose an image file.",
+  "deleteStudent": "Delete student",
+  "deleteStudentConfirm": "Delete this student permanently? All their enrollments and submissions will be removed.",
+  "noCompletedCoursesYet": "No completed courses yet. Finish all lessons in a course to see it here."
 }
