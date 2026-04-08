@@ -18,6 +18,13 @@ const iconMap = {
   pink: Calendar,
 };
 
+const statVisual: Record<string, { box: string; icon: string }> = {
+  blue: { box: 'bg-blue-500/10', icon: 'text-blue-500' },
+  green: { box: 'bg-green-500/10', icon: 'text-green-500' },
+  purple: { box: 'bg-purple-500/10', icon: 'text-purple-500' },
+  pink: { box: 'bg-pink-500/10', icon: 'text-pink-500' },
+};
+
 export default function Profile() {
   const { t } = useApp();
   const [data, setData] = useState<ProfilePayload | null>(null);
@@ -38,7 +45,7 @@ export default function Profile() {
   }, []);
 
   if (!data) {
-    return <div className="p-8 text-muted-foreground">{t('profile')}</div>;
+    return <div className="p-8 text-muted-foreground">{t('loading')}</div>;
   }
 
   const { user, completedCourses, progressData, stats } = data;
@@ -70,11 +77,12 @@ export default function Profile() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
           const Icon = iconMap[stat.color as keyof typeof iconMap] || BookOpen;
+          const sv = statVisual[stat.color] || statVisual.blue;
           return (
             <div key={index} className="bg-card rounded-xl p-6 border border-border shadow-sm">
               <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-lg flex items-center justify-center bg-${stat.color}-500/10`}>
-                  <Icon className={`w-6 h-6 text-${stat.color}-500`} />
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${sv.box}`}>
+                  <Icon className={`w-6 h-6 ${sv.icon}`} />
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">{t(stat.labelKey)}</p>

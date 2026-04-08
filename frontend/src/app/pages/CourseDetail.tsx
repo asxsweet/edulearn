@@ -11,6 +11,7 @@ import {
   CheckCircle,
   Circle,
   ChevronRight,
+  Sparkles,
 } from 'lucide-react';
 import { api, apiForm, fileUrl } from '../../api/client';
 
@@ -60,6 +61,9 @@ interface CourseDetailPayload {
     title: string;
     dueDate: string;
     submitted: boolean;
+    submissionStatus?: string | null;
+    gradeScore?: number | null;
+    teacherFeedback?: string;
     submissionFileUrl?: string;
     submissionLinkUrl?: string;
   }>;
@@ -472,11 +476,43 @@ export default function CourseDetail() {
                         </p>
                       </div>
                       {assignment.submitted && (
-                        <div className="px-3 py-1 rounded-full bg-green-500/10 text-green-500 text-sm">
-                          {t('submitted')}
+                        <div
+                          className={`px-3 py-1 rounded-full text-sm ${
+                            assignment.submissionStatus === 'graded'
+                              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                              : 'bg-amber-500/10 text-amber-800 dark:text-amber-300'
+                          }`}
+                        >
+                          {assignment.submissionStatus === 'graded' ? t('graded') : t('submitted')}
                         </div>
                       )}
                     </div>
+
+                    {assignment.submitted && assignment.submissionStatus === 'graded' && assignment.gradeScore != null && (
+                      <div className="rounded-xl border border-primary/25 bg-gradient-to-br from-primary/[0.07] via-background to-chart-2/[0.06] p-5 shadow-sm">
+                        <div className="flex items-start gap-3">
+                          <div className="w-11 h-11 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                            <Sparkles className="w-5 h-5 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('yourGrade')}</p>
+                            <p className="text-3xl font-bold text-primary tabular-nums mt-0.5">{assignment.gradeScore}%</p>
+                            {assignment.teacherFeedback ? (
+                              <div className="mt-4 pt-4 border-t border-border/80">
+                                <p className="text-xs font-medium text-foreground mb-1.5">{t('teacherFeedback')}</p>
+                                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{assignment.teacherFeedback}</p>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {assignment.submitted && assignment.submissionStatus === 'pending' && (
+                      <p className="text-sm text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                        {t('gradingPending')}
+                      </p>
+                    )}
 
                     {assignment.submitted && (assignment.submissionFileUrl || assignment.submissionLinkUrl) && (
                       <div className="flex flex-wrap gap-2 text-sm">

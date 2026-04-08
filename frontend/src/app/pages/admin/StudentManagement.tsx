@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Search, Eye, TrendingUp, Award } from 'lucide-react';
+import { Link } from 'react-router';
 import { api } from '../../../api/client';
 
 interface StudentRow {
@@ -43,7 +44,7 @@ export default function StudentManagement() {
     <div className="space-y-8">
       <div>
         <h1 className="mb-2">{t('students')}</h1>
-        <p className="text-muted-foreground">{t('statistics')}</p>
+        <p className="text-muted-foreground">{t('studentsPageSubtitle')}</p>
       </div>
 
       <div className="relative">
@@ -92,13 +93,13 @@ export default function StudentManagement() {
                 <p className="text-sm text-muted-foreground">{t('averageScoreStat')}</p>
                 <p className="text-foreground">{student.averageScore}%</p>
               </div>
-              <button
-                type="button"
+              <Link
+                to={'/admin/students/' + student.id}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
               >
                 <Eye className="w-4 h-4" />
                 {t('viewProgress')}
-              </button>
+              </Link>
             </div>
           </div>
         ))}

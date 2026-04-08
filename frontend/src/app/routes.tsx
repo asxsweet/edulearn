@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import CourseManagement from './pages/admin/CourseManagement';
 import StudentManagement from './pages/admin/StudentManagement';
+import StudentProgress from './pages/admin/StudentProgress';
 import CourseCreation from './pages/admin/CourseCreation';
 import SubmissionReview from './pages/admin/SubmissionReview';
 
@@ -110,6 +111,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute allowedRole="admin">
             <StudentManagement />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'admin/students/:id',
+        element: (
+          <ProtectedRoute allowedRole="admin">
+            <StudentProgress />
           </ProtectedRoute>
         ),
       },

@@ -1,5 +1,5 @@
 import 'express-async-errors';
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
@@ -10,9 +10,13 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { initDatabase } from './db.js';
 import { stmt } from './stmt.js';
+import { generateGroqReply, getGroqApiKey } from './groq.js';
+import { runUserAiChat } from './aiChatGate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Монореподан `npm run dev` түбінен іске қосқанда cwd — түбі; server/.env міндетті оқылсын.
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const uploadsRoot = path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(path.join(uploadsRoot, 'courses'), { recursive: true });
 fs.mkdirSync(path.join(uploadsRoot, 'submissions'), { recursive: true });
@@ -25,11 +29,33 @@ function fileBasename(p) {
 }
 
 function decodeUploadFilename(originalname) {
-  try {
-    return Buffer.from(String(originalname || ''), 'latin1').toString('utf8').normalize('NFC');
-  } catch {
-    return String(originalname || '').normalize('NFC');
-  }
+  const src = String(originalname || '');
+  const normalizedSrc = src.normalize('NFC');
+  const hasCyrillic = /[А-Яа-яЁёҚқӘәІіҢңҒғҮүҰұӨөҺһ]/.test(normalizedSrc);
+  const looksMojibake = /[ÃÐÑ]/.test(normalizedSrc);
+  if (hasCyrillic && !looksMojibake) return normalizedSrc;
+
+  const tryDecode = (s) => {
+    try {
+      return Buffer.from(s, 'latin1').toString('utf8').normalize('NFC');
+    } catch {
+      return s;
+    }
+  };
+
+  const once = tryDecode(normalizedSrc);
+  const twice = tryDecode(once);
+
+  const score = (s) => {
+    const cyr = (s.match(/[А-Яа-яЁёҚқӘәІіҢңҒғҮүҰұӨөҺһ]/g) || []).length;
+    const moj = (s.match(/[ÃÐÑ]/g) || []).length;
+    const bad = (s.match(/\uFFFD/g) || []).length;
+    return cyr * 10 - moj * 5 - bad * 20;
+  };
+
+  const variants = [normalizedSrc, once, twice];
+  variants.sort((a, b) => score(b) - score(a));
+  return variants[0];
 }
 
 function sanitizeFilename(name) {
@@ -99,6 +125,44 @@ function timeAgoLabel(dateInput) {
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
   return `${days}d`;
+}
+
+/** Last 7 UTC calendar days, counts assignment submissions per day (real DB data). */
+async function buildWeeklyActivityFromSubmissions(uid, pool) {
+  const rows = await stmt(
+    pool,
+    `SELECT submitted_at FROM assignment_submissions WHERE user_id = ? AND submitted_at IS NOT NULL`
+  ).all(uid);
+  const out = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    out.push({ date: iso, count: 0 });
+  }
+  const set = new Set(out.map((x) => x.date));
+  for (const r of rows) {
+    if (!r.submitted_at) continue;
+    const iso = new Date(r.submitted_at).toISOString().slice(0, 10);
+    if (set.has(iso)) {
+      const row = out.find((x) => x.date === iso);
+      if (row) row.count += 1;
+    }
+  }
+  return out;
+}
+
+async function countDistinctSubmissionDays(uid, pool) {
+  const rows = await stmt(
+    pool,
+    `SELECT submitted_at FROM assignment_submissions WHERE user_id = ? AND submitted_at IS NOT NULL`
+  ).all(uid);
+  const distinct = new Set();
+  for (const r of rows) {
+    if (!r.submitted_at) continue;
+    distinct.add(new Date(r.submitted_at).toISOString().slice(0, 10));
+  }
+  return distinct.size;
 }
 
 function humanizeKey(key) {
@@ -183,7 +247,158 @@ const isLocalDev = process.env.NODE_ENV !== 'production';
 
 const pool = await initDatabase();
 
+const AI_SUGGESTION_KEYS = [
+  'suggestExplainML',
+  'suggestAiVsMl',
+  'suggestNeuralNetworks',
+  'suggestUpcomingTestTips',
+  'suggestStudyPlan',
+];
+
+function normalizeAiLocale(locale) {
+  const l = String(locale || '')
+    .toLowerCase()
+    .replace('_', '-')
+    .split('-')[0];
+  if (l === 'kk' || l === 'ru') return l;
+  return 'en';
+}
+
+const DEFAULT_AI_TEMPLATES = {
+  en: `Hello, {{name}}!
+
+You wrote: «{{message}}»
+
+Your active courses: {{courses}}
+
+I'm the platform's built-in learning assistant (demo). For full AI answers, connect an LLM API (OpenAI, etc.) in the server. Tips: ask one clear question, name a lesson or topic, or split a big question into smaller parts.`,
+
+  kk: `Сәлем, {{name}}!
+
+Сіздің хабарламаңыз: «{{message}}»
+
+Белсенді курстарыңыз: {{courses}}
+
+Мен платформаның ішкі оқу көмекшісімін (демо режим). Толық ИИ жауабы үшін серверге LLM API (мысалы OpenAI) қосыңыз. Кеңес: бір нақты сұрақ қойыңыз, сабақ атауын немесе тақырыпты көрсетіңіз, үлкен сұрақты бөліктерге бөліңіз.`,
+
+  ru: `Здравствуйте, {{name}}!
+
+Ваше сообщение: «{{message}}»
+
+Активные курсы: {{courses}}
+
+Я встроенный учебный помощник платформы (демо). Для полноценного ИИ подключите LLM API (например OpenAI) на сервере. Совет: формулируйте один чёткий вопрос, укажите урок или тему, разбейте сложный вопрос на части.`,
+};
+
+const AI_CHAT_MAX_PART = 900;
+/** ~3 айналым (Groq-қа жіберілетін соңғы хабарлар, токен үнемдеу). */
+const AI_CHAT_MAX_TURNS = 3;
+
+function sanitizeChatHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw.slice(-AI_CHAT_MAX_TURNS * 2)) {
+    if (!item || typeof item.content !== 'string') continue;
+    const role = item.role === 'assistant' ? 'assistant' : item.role === 'user' ? 'user' : null;
+    if (!role) continue;
+    out.push({ role, content: item.content.slice(0, AI_CHAT_MAX_PART) });
+  }
+  return out.slice(-AI_CHAT_MAX_TURNS * 2);
+}
+
+const AI_SERVICE_BUSY = {
+  en: 'AI service is temporarily unavailable. Please try again.',
+  kk: 'ИИ қызметі уақытша қолжетімсіз. Кейінірек қайта байқап көріңіз.',
+  ru: 'Сервис ИИ временно недоступен. Попробуйте позже.',
+};
+
+function aiUnavailableReply(locale) {
+  const loc = normalizeAiLocale(locale);
+  return AI_SERVICE_BUSY[loc] || AI_SERVICE_BUSY.en;
+}
+
+async function buildAiReply(pool, userId, message, locale) {
+  const loc = normalizeAiLocale(locale);
+  const snippet = String(message || '').trim().slice(0, 500);
+  const u = await stmt(pool, `SELECT name FROM users WHERE id = ?`).get(userId);
+  const name = u?.name?.trim() || '—';
+  const cr = await stmt(
+    pool,
+    `SELECT c.title FROM enrollments e JOIN courses c ON c.id = e.course_id WHERE e.user_id = ? AND c.status = 'active' ORDER BY c.id`
+  ).all(userId);
+  const courseTitles = cr.map((r) => r.title).filter(Boolean);
+  const courses = courseTitles.length ? courseTitles.join(', ') : '—';
+
+  const cfgKey = `aiChatReplyTemplate_${loc}`;
+  const rowLoc = await stmt(pool, `SELECT value FROM app_config WHERE key = ?`).get(cfgKey);
+  const rowAny = await stmt(pool, `SELECT value FROM app_config WHERE key = 'aiChatReplyTemplate'`).get();
+  const pick = rowLoc?.value || rowAny?.value;
+  /** Ескі seed мәтіні LLM кілті жоқ кезде ғана қолданылуы керек; DB-дағы ескі ағылшын stub-ты елемейміз. */
+  const isLegacyStub = (v) =>
+    typeof v === 'string' &&
+    (/Thank you for your question/i.test(v) || /connect an external LLM API/i.test(v));
+  let template = !isLegacyStub(pick) ? pick : null;
+  template = template || DEFAULT_AI_TEMPLATES[loc] || DEFAULT_AI_TEMPLATES.en;
+
+  return String(template)
+    .replace(/\{\{message\}\}/g, snippet)
+    .replace(/\{\{snippet\}\}/g, snippet)
+    .replace(/\{\{courses\}\}/g, courses)
+    .replace(/\{\{name\}\}/g, name);
+}
+
+/**
+ * Uses Groq (OpenAI-compatible) when GROQ_API_KEY is set; otherwise template fallback.
+ * On Groq failure (with key set): short unavailable message (not the long demo template).
+ * @returns {Promise<{ reply: string, source: 'groq' | 'unavailable' | 'template' }>}
+ */
+async function buildAiReplyWithGroq(pool, userId, message, locale, history, opts = {}) {
+  const { signal } = opts;
+  const loc = normalizeAiLocale(locale);
+  const userMsg = String(message || '').trim().slice(0, 2800);
+  if (!userMsg) {
+    const reply = await buildAiReply(pool, userId, message, locale);
+    return { reply, source: 'template' };
+  }
+
+  const u = await stmt(pool, `SELECT name FROM users WHERE id = ?`).get(userId);
+  const name = u?.name?.trim() || '—';
+  const cr = await stmt(
+    pool,
+    `SELECT c.title FROM enrollments e JOIN courses c ON c.id = e.course_id WHERE e.user_id = ? AND c.status = 'active' ORDER BY c.id`
+  ).all(userId);
+  const courseTitles = cr.map((r) => r.title).filter(Boolean);
+  const courses = courseTitles.length ? courseTitles.join(', ') : '—';
+
+  const apiKey = getGroqApiKey();
+  if (!apiKey) {
+    console.warn('[Groq] GROQ_API_KEY жоқ — шаблон жауап. server/.env жолын тексеріңіз.');
+    const reply = await buildAiReply(pool, userId, message, locale);
+    return { reply, source: 'template' };
+  }
+
+  try {
+    const reply = await generateGroqReply({
+      userMessage: userMsg,
+      history: sanitizeChatHistory(history),
+      locale: loc,
+      studentName: name,
+      coursesText: courses,
+      signal,
+    });
+    return { reply, source: 'groq' };
+  } catch (e) {
+    if (e?.name === 'AbortError') throw e;
+    console.error('[Groq] fallback:', e?.message || e);
+    return { reply: aiUnavailableReply(loc), source: 'unavailable' };
+  }
+}
+
 const app = express();
+
+/** Supersede in-flight AI work when the same user sends a new message (client abort + server signal). */
+const aiChatAbortByUser = new Map();
+
 app.use(
   cors({
     origin(origin, callback) {
@@ -413,15 +628,8 @@ app.get('/api/student/dashboard', authMiddleware, requireRole('student'), async 
     (await stmt(pool, 'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM profile_completed_courses WHERE user_id = ?').get(uid)).n
   );
 
-  const weeklyActivity = await stmt(
-    pool,
-    `SELECT day_label AS day, hours FROM weekly_activity WHERE user_id = ? ORDER BY sort_order`
-  ).all(uid);
-
-  const totalHours = weeklyActivity.reduce((s, d) => s + Number(d.hours), 0);
-
-  const cfgRow = await stmt(pool, `SELECT value FROM app_config WHERE key = 'studyWeekSubtitle'`).get();
-  const prevWeekHint = cfgRow?.value || '';
+  const weeklyActivity = await buildWeeklyActivityFromSubmissions(uid, pool);
+  const activityThisWeek = weeklyActivity.reduce((s, d) => s + d.count, 0);
 
   const completedCourses = enrolled.filter((e) => e.progress >= 100).length;
   const inProgressCourses = enrolled.filter((e) => e.progress > 0 && e.progress < 100).length;
@@ -433,8 +641,7 @@ app.get('/api/student/dashboard', authMiddleware, requireRole('student'), async 
       lessonsLabel: `${doneLessons}/${totalLessons}`,
       avgScore: `${avgScorePct}%`,
       certificates,
-      studyHoursThisWeek: `${totalHours.toFixed(1)} hrs`,
-      studyWeekSubtitle: prevWeekHint,
+      activityThisWeek,
     },
     enrolledCourses,
     weeklyActivity,
@@ -558,6 +765,9 @@ app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, 
       title: a.title,
       dueDate: a.due_date,
       submitted: sub && (sub.status === 'graded' || sub.status === 'pending'),
+      submissionStatus: sub?.status || null,
+      gradeScore: sub?.score != null ? Number(sub.score) : null,
+      teacherFeedback: sub?.feedback ? String(sub.feedback) : '',
       submissionFileUrl,
       submissionLinkUrl: sub?.link_url || '',
     });
@@ -709,19 +919,35 @@ app.post('/api/tests/:id/submit', authMiddleware, requireRole('student'), async 
 });
 
 app.post('/api/ai/chat', authMiddleware, requireRole('student'), async (req, res) => {
-  const { message } = req.body || {};
+  const uid = req.user.sub;
+  const { message, locale, history } = req.body || {};
   if (!message || !String(message).trim()) return res.status(400).json({ error: 'message required' });
-  const row = await stmt(pool, `SELECT value FROM app_config WHERE key = 'aiChatReplyTemplate'`).get();
-  const template =
-    row?.value ||
-    'Thank you for your question. Our learning assistant received: "{{message}}". This response is generated by the platform backend; connect an external LLM API here for real AI answers.';
-  const reply = template.replace(/\{\{message\}\}/g, String(message).slice(0, 500));
-  res.json({ reply });
+
+  aiChatAbortByUser.get(uid)?.abort();
+  const ac = new AbortController();
+  aiChatAbortByUser.set(uid, ac);
+
+  try {
+    const { reply, source } = await runUserAiChat(uid, ac.signal, () =>
+      buildAiReplyWithGroq(pool, uid, message, locale, history, { signal: ac.signal })
+    );
+    res.json({
+      reply,
+      locale: normalizeAiLocale(locale),
+      source,
+    });
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      console.log(`[aiChat] user=${uid} aborted (superseded or client disconnect)`);
+      if (!res.headersSent) return res.status(204).end();
+      return;
+    }
+    throw e;
+  }
 });
 
 app.get('/api/ai/suggestions', authMiddleware, requireRole('student'), async (req, res) => {
-  const rows = await stmt(pool, `SELECT text FROM ai_suggestions ORDER BY sort_order`).all();
-  res.json(rows.map((r) => r.text));
+  res.json({ keys: AI_SUGGESTION_KEYS });
 });
 
 app.get('/api/profile', authMiddleware, requireRole('student'), async (req, res) => {
@@ -741,18 +967,19 @@ app.get('/api/profile', authMiddleware, requireRole('student'), async (req, res)
   const avg = await stmt(pool, `SELECT AVG(grade) AS a FROM profile_completed_courses WHERE user_id = ?`).get(uid);
   const avgScore = avg.a != null ? `${Math.round(Number(avg.a))}%` : '0%';
 
+  const learningDaysCount = await countDistinctSubmissionDays(uid, pool);
+
   const progressData = [
     { labelKey: 'completed', value: completedCount, color: '#10b981' },
     { labelKey: 'inProgress', value: inProgress, color: '#6366f1' },
     { labelKey: 'notStarted', value: notStarted, color: '#e2e8f0' },
   ];
 
-  const ld = await stmt(pool, `SELECT value FROM app_config WHERE key = 'learningDaysValue'`).get();
   const stats = [
     { labelKey: 'totalCoursesStat', value: String(enrolled), color: 'blue' },
     { labelKey: 'completedStat', value: String(completedCount), color: 'green' },
     { labelKey: 'averageScoreStat', value: avgScore, color: 'purple' },
-    { labelKey: 'learningDaysStat', value: ld?.value || '45', color: 'pink' },
+    { labelKey: 'learningDaysStat', value: String(learningDaysCount), color: 'pink' },
   ];
 
   res.json({
@@ -1136,6 +1363,7 @@ app.post('/api/admin/courses/:courseId/tests', authMiddleware, requireRole('admi
   const qs = Array.isArray(questions) ? questions : [];
   const ext = external_url && String(external_url).trim();
   if (qs.length === 0 && !ext) return res.status(400).json({ error: 'Сұрақтар немесе сыртқы тест сілтемесі қажет' });
+  if (qs.length > 50) return res.status(400).json({ error: 'Too many questions (max 50)' });
   const info = await stmt(
     pool,
     `INSERT INTO tests (course_id, title, question_count, time_limit_seconds, external_url) VALUES (?,?,?,?,?)`
@@ -1161,6 +1389,7 @@ app.put('/api/admin/tests/:testId', authMiddleware, requireRole('admin'), async 
   const qs = Array.isArray(questions) ? questions : [];
   const ext = external_url && String(external_url).trim();
   if (qs.length === 0 && !ext) return res.status(400).json({ error: 'Сұрақтар немесе сыртқы тест сілтемесі қажет' });
+  if (qs.length > 50) return res.status(400).json({ error: 'Too many questions (max 50)' });
   await stmt(pool, 'DELETE FROM test_questions WHERE test_id = ?').run(testId);
   await stmt(pool, 'UPDATE tests SET title = ?, question_count = ?, time_limit_seconds = ?, external_url = ? WHERE id = ?').run(
     title.trim(),
@@ -1220,6 +1449,84 @@ app.get('/api/admin/students', authMiddleware, requireRole('admin'), async (req,
     });
   }
   res.json(out);
+});
+
+app.get('/api/admin/students/:studentId/progress', authMiddleware, requireRole('admin'), async (req, res) => {
+  const sid = Number(req.params.studentId);
+  const u = await stmt(pool, `SELECT id, name, email, student_code, grade_label FROM users WHERE id = ? AND role = 'student'`).get(sid);
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  const enrolled = await stmt(
+    pool,
+    `
+    SELECT c.id, c.title, e.progress, c.accent_color,
+      (SELECT CAST(COUNT(*) AS INTEGER) FROM lessons l WHERE l.course_id = c.id) AS total_lessons,
+      (SELECT CAST(COUNT(*) AS INTEGER) FROM lesson_progress lp JOIN lessons l ON l.id = lp.lesson_id
+        WHERE lp.user_id = ? AND l.course_id = c.id AND lp.completed) AS lessons_done
+    FROM enrollments e JOIN courses c ON c.id = e.course_id
+    WHERE e.user_id = ? AND c.status = 'active'
+    ORDER BY c.id
+  `
+  ).all(sid, sid);
+  const courses = [];
+  for (const row of enrolled) {
+    const totalLessons = Number(row.total_lessons) || 0;
+    const lessonsDone = Number(row.lessons_done) || 0;
+    const progressPct = totalLessons > 0 ? Math.round((lessonsDone / totalLessons) * 100) : 0;
+    const testRows = await stmt(
+      pool,
+      `
+      SELECT t.id, t.title, t.question_count, ta.score, ta.completed
+      FROM tests t
+      LEFT JOIN test_attempts ta ON ta.test_id = t.id AND ta.user_id = ?
+      WHERE t.course_id = ?
+      ORDER BY t.id
+    `
+    ).all(sid, row.id);
+    const assignRows = await stmt(
+      pool,
+      `
+      SELECT a.id, a.title, a.due_date, s.status, s.score, s.feedback, s.submitted_at
+      FROM assignments a
+      LEFT JOIN assignment_submissions s ON s.assignment_id = a.id AND s.user_id = ?
+      WHERE a.course_id = ?
+      ORDER BY a.id
+    `
+    ).all(sid, row.id);
+    courses.push({
+      courseId: row.id,
+      title: row.title,
+      progress: progressPct,
+      lessonsDone,
+      totalLessons,
+      accentColor: row.accent_color || '#6366f1',
+      tests: testRows.map((tr) => ({
+        id: tr.id,
+        title: tr.title,
+        questionCount: Number(tr.question_count) || 0,
+        score: tr.score != null ? Number(tr.score) : null,
+        completed: !!tr.completed,
+      })),
+      assignments: assignRows.map((ar) => ({
+        id: ar.id,
+        title: ar.title,
+        dueDate: ar.due_date,
+        status: ar.status || 'not_submitted',
+        score: ar.score != null ? Number(ar.score) : null,
+        feedback: ar.feedback ? String(ar.feedback) : '',
+        submittedAt: ar.submitted_at || null,
+      })),
+    });
+  }
+  res.json({
+    student: {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      studentCode: u.student_code,
+      gradeLabel: u.grade_label,
+    },
+    courses,
+  });
 });
 
 app.get('/api/admin/submissions', authMiddleware, requireRole('admin'), async (req, res) => {

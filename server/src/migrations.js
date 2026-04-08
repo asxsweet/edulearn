@@ -9,6 +9,9 @@ export async function runMigrationsPg(pool) {
   for (const sql of stmts) {
     await pool.query(sql);
   }
+  await pool.query(
+    `DELETE FROM app_config WHERE key = 'aiChatReplyTemplate' AND value LIKE '%connect an external LLM API%'`
+  );
 }
 
 export function runMigrationsSqlite(pool) {
@@ -25,5 +28,12 @@ export function runMigrationsSqlite(pool) {
       const msg = String(e?.message ?? e);
       if (!/duplicate column|already exists/i.test(msg)) throw e;
     }
+  }
+  try {
+    pool.exec(
+      `DELETE FROM app_config WHERE key = 'aiChatReplyTemplate' AND value LIKE '%connect an external LLM API%'`
+    );
+  } catch {
+    /* */
   }
 }

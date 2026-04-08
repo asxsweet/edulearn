@@ -11,8 +11,7 @@ interface DashboardPayload {
     lessonsLabel: string;
     avgScore: string;
     certificates: number;
-    studyHoursThisWeek: string;
-    studyWeekSubtitle: string;
+    activityThisWeek: number;
   };
   enrolledCourses: Array<{
     id: number;
@@ -22,12 +21,17 @@ interface DashboardPayload {
     totalLessons: number;
     color: string;
   }>;
-  weeklyActivity: Array<{ day: string; hours: number }>;
+  weeklyActivity: Array<{ date: string; count: number }>;
   learningStats: { completed: number; inProgress: number; notStarted: number };
 }
 
+function formatWeekdayLabel(dateIso: string, language: string) {
+  const loc = language === 'kk' ? 'kk-KZ' : language === 'ru' ? 'ru-RU' : 'en-US';
+  return new Intl.DateTimeFormat(loc, { weekday: 'short' }).format(new Date(dateIso + 'T12:00:00'));
+}
+
 export default function Dashboard() {
-  const { t, user } = useApp();
+  const { t, user, language } = useApp();
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -50,7 +54,7 @@ export default function Dashboard() {
     return <div className="text-destructive">{err}</div>;
   }
   if (!data) {
-    return <div className="text-muted-foreground">{t('dashboard')}</div>;
+    return <div className="text-muted-foreground">{t('loading')}</div>;
   }
 
   const { stats, enrolledCourses, weeklyActivity, learningStats } = data;
@@ -154,13 +158,21 @@ export default function Dashboard() {
           </div>
 
           <div className="bg-card rounded-xl border border-border p-6">
-            <h2 className="mb-4">{t('weeklyActivity')}</h2>
+            <h2 className="mb-1">{t('weeklyActivity')}</h2>
+            <p className="text-xs text-muted-foreground mb-4">{t('weeklyActivitySubtitle')}</p>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={weeklyActivity}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="day" stroke="var(--muted-foreground)" fontSize={12} />
-                <YAxis stroke="var(--muted-foreground)" fontSize={12} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(d) => formatWeekdayLabel(String(d), language)}
+                  stroke="var(--muted-foreground)"
+                  fontSize={12}
+                />
+                <YAxis allowDecimals={false} stroke="var(--muted-foreground)" fontSize={12} />
                 <Tooltip
+                  labelFormatter={(d) => formatWeekdayLabel(String(d), language)}
+                  formatter={(value: number) => [value, t('submissionsLabel')]}
                   contentStyle={{
                     backgroundColor: 'var(--card)',
                     border: '1px solid var(--border)',
@@ -168,7 +180,7 @@ export default function Dashboard() {
                   }}
                   cursor={{ fill: 'var(--accent)' }}
                 />
-                <Bar dataKey="hours" fill="var(--primary)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="count" fill="var(--primary)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -227,8 +239,8 @@ export default function Dashboard() {
               <Clock className="w-5 h-5 text-primary" />
               <h3>{t('thisWeek')}</h3>
             </div>
-            <p className="text-3xl mb-1">{stats.studyHoursThisWeek}</p>
-            <p className="text-sm text-muted-foreground">{stats.studyWeekSubtitle}</p>
+            <p className="text-3xl mb-1">{stats.activityThisWeek}</p>
+            <p className="text-sm text-muted-foreground">{t('activityThisWeekLabel')}</p>
           </div>
         </div>
       </div>

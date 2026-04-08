@@ -37,6 +37,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const LANG_KEY = 'edulearn_lang';
+const THEME_KEY = 'edulearn_theme';
 const I18N_MAP: Record<Language, Record<string, string>> = { kk, ru, en };
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -44,7 +45,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const s = localStorage.getItem(LANG_KEY) as Language | null;
     return s && ['kk', 'ru', 'en'].includes(s) ? s : 'en';
   });
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'light';
+    const s = localStorage.getItem(THEME_KEY);
+    return s === 'dark' || s === 'light' ? s : 'light';
+  });
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [translations, setTranslations] = useState<Record<string, string>>(I18N_MAP[language] || I18N_MAP.en);
@@ -60,6 +65,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     if (theme === 'dark') root.classList.add('dark');
     else root.classList.remove('dark');
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      /* ignore */
+    }
   }, [theme]);
 
   useEffect(() => {
@@ -106,9 +116,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-  };
+  }, []);
 
   const loginWithToken = (token: string, u: User) => {
     setToken(token);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useApp } from '../../context/AppContext';
-import { Plus, Trash2, Upload, Save, BookOpen, FileText, ClipboardList, ListChecks } from 'lucide-react';
+import { Plus, Trash2, Upload, Save, BookOpen, FileText, ClipboardList, ListChecks, ChevronUp, ChevronDown } from 'lucide-react';
 import { api, apiForm, fileUrl } from '../../../api/client';
 
 function formatBytes(n: number) {
@@ -48,6 +48,41 @@ type EditorAssignment = {
   title: string;
   due_date: string;
 };
+
+const MAX_TEST_QUESTIONS = 50;
+
+function emptyTestQuestion(): EditorQuestion {
+  return { question_text: '', options: ['', '', '', ''], correct_index: 0 };
+}
+
+function padOptionSlots(opts: string[]): string[] {
+  const o = [...opts];
+  while (o.length < 4) o.push('');
+  return o.slice(0, 4);
+}
+
+/** correct_index in UI = slot 0–3; output correct_index = index in filtered non-empty options */
+function buildQuestionsForApi(rows: EditorQuestion[]): { question_text: string; options: string[]; correct_index: number }[] {
+  const out: { question_text: string; options: string[]; correct_index: number }[] = [];
+  for (const row of rows) {
+    const slots = row.options.map((s) => String(s).trim());
+    const opts = slots.filter(Boolean);
+    if (!row.question_text.trim() || opts.length < 2) continue;
+    let slot = Math.max(0, Math.min(row.correct_index, slots.length - 1));
+    if (!slots[slot]) {
+      const f = slots.findIndex((s) => s.length > 0);
+      if (f < 0) continue;
+      slot = f;
+    }
+    const correctInFiltered = slots.slice(0, slot + 1).filter(Boolean).length - 1;
+    out.push({
+      question_text: row.question_text.trim(),
+      options: opts,
+      correct_index: Math.max(0, Math.min(correctInFiltered, opts.length - 1)),
+    });
+  }
+  return out;
+}
 
 function LessonEditorRow({
   lesson,
@@ -156,14 +191,13 @@ export default function CourseCreation() {
   const [loading, setLoading] = useState(false);
   const [section, setSection] = useState<'meta' | 'lessons' | 'materials' | 'tests' | 'assignments'>('meta');
 
-  const [newTest, setNewTest] = useState({
+  const [testForm, setTestForm] = useState({
     title: '',
     time_limit_seconds: 1800,
     external_url: '',
-    q1: '',
-    o1: ['', '', '', ''],
-    correct: 0,
+    questions: [emptyTestQuestion()] as EditorQuestion[],
   });
+  const [testEditId, setTestEditId] = useState<number | null>(null);
 
   const [newAssignment, setNewAssignment] = useState({ title: '', due_date: '' });
 
@@ -339,34 +373,81 @@ export default function CourseCreation() {
     await load();
   };
 
-  const addTest = async () => {
+  const resetTestForm = () => {
+    setTestForm({ title: '', time_limit_seconds: 1800, external_url: '', questions: [emptyTestQuestion()] });
+    setTestEditId(null);
+  };
+
+  const beginEditTest = (te: EditorTest) => {
+    setTestEditId(te.id);
+    setTestForm({
+      title: te.title,
+      time_limit_seconds: te.time_limit_seconds,
+      external_url: te.external_url || '',
+      questions:
+        te.questions.length > 0
+          ? te.questions.map((q) => ({
+              question_text: q.question_text,
+              options: padOptionSlots(q.options),
+              correct_index: Math.max(0, Math.min(q.correct_index, 3)),
+            }))
+          : [emptyTestQuestion()],
+    });
+  };
+
+  const appendEmptyQuestionsUpTo = (target: number) => {
+    setTestForm((f) => {
+      if (f.questions.length >= target) return f;
+      const need = Math.min(target - f.questions.length, MAX_TEST_QUESTIONS - f.questions.length);
+      const extra = Array.from({ length: need }, () => emptyTestQuestion());
+      return { ...f, questions: [...f.questions, ...extra] };
+    });
+  };
+
+  const moveQuestion = (index: number, dir: -1 | 1) => {
+    setTestForm((f) => {
+      const j = index + dir;
+      if (j < 0 || j >= f.questions.length) return f;
+      const questions = [...f.questions];
+      [questions[index], questions[j]] = [questions[j], questions[index]];
+      return { ...f, questions };
+    });
+  };
+
+  const saveTest = async () => {
     if (!isEditing) return;
-    const title = newTest.title.trim();
+    const title = testForm.title.trim();
     if (!title) {
       window.alert(t('testTitleLabel'));
       return;
     }
-    const opts = newTest.o1.map((x) => x.trim()).filter(Boolean);
-    const questions =
-      newTest.q1.trim() && opts.length >= 2
-        ? [{ question_text: newTest.q1.trim(), options: opts, correct_index: Math.min(newTest.correct, opts.length - 1) }]
-        : [];
-    const ext = newTest.external_url.trim();
-    if (questions.length === 0 && !ext) {
-      window.alert(t('externalTestLinkOptional'));
+    const built = buildQuestionsForApi(testForm.questions);
+    const ext = testForm.external_url.trim();
+    if (built.length === 0 && !ext) {
+      window.alert(t('testValidationNeedQuestion'));
       return;
     }
-    await api('/api/admin/courses/' + courseId + '/tests', {
-      method: 'POST',
-      body: JSON.stringify({
-        title,
-        time_limit_seconds: newTest.time_limit_seconds,
-        external_url: ext || null,
-        questions,
-      }),
-    });
-    setNewTest({ title: '', time_limit_seconds: 1800, external_url: '', q1: '', o1: ['', '', '', ''], correct: 0 });
-    await load();
+    if (built.length > MAX_TEST_QUESTIONS) {
+      window.alert(t('testTooManyQuestions'));
+      return;
+    }
+    const body = {
+      title,
+      time_limit_seconds: testForm.time_limit_seconds,
+      external_url: ext || null,
+      questions: built,
+    };
+    try {
+      if (testEditId != null) {
+        await api('/api/admin/tests/' + testEditId, { method: 'PUT', body: JSON.stringify(body) });
+      } else {
+        await api('/api/admin/courses/' + courseId + '/tests', { method: 'POST', body: JSON.stringify(body) });
+      }
+      resetTestForm();
+      await load();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : t('unknownError'));
+    }
   };
 
   const deleteTest = async (tid: number) => {
@@ -546,79 +627,195 @@ export default function CourseCreation() {
         <div className="space-y-6">
           <h2 className="text-lg font-medium">{t('tests')}</h2>
           <div className="bg-card rounded-xl p-6 border border-border space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Сыртқы тест (Google Forms т.б.) сілтемесін немесе төменде бір сұрақпен кірістірілген тестті қосыңыз.
-            </p>
+            <p className="text-sm text-muted-foreground">{t('testBuilderIntro')}</p>
+            <p className="text-xs text-muted-foreground">{t('testMinQuestionsHint')}</p>
+            {testEditId != null ? (
+              <p className="text-sm font-medium text-primary">{t('editingTestBanner').replace('{{id}}', String(testEditId))}</p>
+            ) : null}
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background"
               placeholder={t('testTitleLabel')}
-              value={newTest.title}
-              onChange={(e) => setNewTest({ ...newTest, title: e.target.value })}
+              value={testForm.title}
+              onChange={(e) => setTestForm({ ...testForm, title: e.target.value })}
             />
-            <input
-              type="number"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder={t('timeSecLabel')}
-              value={newTest.time_limit_seconds}
-              onChange={(e) => setNewTest({ ...newTest, time_limit_seconds: Number(e.target.value) || 1800 })}
-            />
-            <input
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder={t('externalTestLinkOptional')}
-              value={newTest.external_url}
-              onChange={(e) => setNewTest({ ...newTest, external_url: e.target.value })}
-            />
-            <p className="text-sm font-medium">Бірінші сұрақ (қосымша — сыртқы сілтеме жеткілікті)</p>
-            <textarea
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder={t('questionTextLabel')}
-              value={newTest.q1}
-              onChange={(e) => setNewTest({ ...newTest, q1: e.target.value })}
-            />
-            {newTest.o1.map((o, i) => (
+            <div className="space-y-1">
+              <label className="text-sm text-foreground">{t('timeSecLabel')}</label>
               <input
-                key={i}
+                type="number"
+                min={60}
                 className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-                placeholder={`Жауап ${i + 1}`}
-                value={o}
-                onChange={(e) => {
-                  const o1 = [...newTest.o1];
-                  o1[i] = e.target.value;
-                  setNewTest({ ...newTest, o1 });
-                }}
+                value={testForm.time_limit_seconds}
+                onChange={(e) => setTestForm({ ...testForm, time_limit_seconds: Number(e.target.value) || 1800 })}
               />
-            ))}
-            <div className="flex items-center gap-2">
-              <span className="text-sm">Дұрыс жауап №</span>
-              <select
-                className="px-3 py-2 rounded-lg border border-border bg-background"
-                value={newTest.correct}
-                onChange={(e) => setNewTest({ ...newTest, correct: Number(e.target.value) })}
-              >
-                {[0, 1, 2, 3].map((i) => (
-                  <option key={i} value={i}>
-                    {i + 1}
-                  </option>
-                ))}
-              </select>
             </div>
-            <button type="button" onClick={addTest} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground">
-              Тест қосу
-            </button>
+            <div className="space-y-1">
+              <label className="text-sm text-foreground">{t('externalTestLinkOptional')}</label>
+              <input
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background"
+                value={testForm.external_url}
+                onChange={(e) => setTestForm({ ...testForm, external_url: e.target.value })}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
+              <span className="text-sm font-medium">{t('testQuestionsSection')}</span>
+              <span className="text-xs text-muted-foreground">
+                ({testForm.questions.length} / {MAX_TEST_QUESTIONS})
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setTestForm((f) =>
+                    f.questions.length >= MAX_TEST_QUESTIONS
+                      ? f
+                      : { ...f, questions: [...f.questions, emptyTestQuestion()] }
+                  )
+                }
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent"
+              >
+                <Plus className="w-4 h-4" />
+                {t('addQuestionToTest')}
+              </button>
+              <button
+                type="button"
+                onClick={() => appendEmptyQuestionsUpTo(10)}
+                className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent"
+              >
+                {t('add10EmptyQuestions')}
+              </button>
+              <button
+                type="button"
+                onClick={() => appendEmptyQuestionsUpTo(15)}
+                className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent"
+              >
+                {t('add15EmptyQuestions')}
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {testForm.questions.map((q, qi) => (
+                <div key={qi} className="p-4 rounded-lg border border-border bg-muted/30 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-medium">
+                      {t('question')} {qi + 1}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        title={t('moveQuestionUp')}
+                        disabled={qi === 0}
+                        onClick={() => moveQuestion(qi, -1)}
+                        className="p-1.5 rounded hover:bg-accent disabled:opacity-40"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title={t('moveQuestionDown')}
+                        disabled={qi === testForm.questions.length - 1}
+                        onClick={() => moveQuestion(qi, 1)}
+                        className="p-1.5 rounded hover:bg-accent disabled:opacity-40"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={testForm.questions.length <= 1}
+                        onClick={() =>
+                          setTestForm((f) => ({
+                            ...f,
+                            questions: f.questions.filter((_, i) => i !== qi),
+                          }))
+                        }
+                        className="p-1.5 rounded hover:bg-destructive/10 text-destructive disabled:opacity-40 text-sm"
+                      >
+                        {t('removeQuestionFromTest')}
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                    rows={2}
+                    placeholder={t('questionTextLabel')}
+                    value={q.question_text}
+                    onChange={(e) => {
+                      const questions = [...testForm.questions];
+                      questions[qi] = { ...questions[qi], question_text: e.target.value };
+                      setTestForm({ ...testForm, questions });
+                    }}
+                  />
+                  {q.options.map((o, oi) => (
+                    <input
+                      key={oi}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      placeholder={t('answerOptionN').replace('{{n}}', String(oi + 1))}
+                      value={o}
+                      onChange={(e) => {
+                        const questions = [...testForm.questions];
+                        const options = [...questions[qi].options];
+                        options[oi] = e.target.value;
+                        questions[qi] = { ...questions[qi], options };
+                        setTestForm({ ...testForm, questions });
+                      }}
+                    />
+                  ))}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm">{t('correctAnswerSlot')}</span>
+                    <select
+                      className="px-3 py-2 rounded-lg border border-border bg-background text-sm"
+                      value={q.correct_index}
+                      onChange={(e) => {
+                        const questions = [...testForm.questions];
+                        questions[qi] = { ...questions[qi], correct_index: Number(e.target.value) };
+                        setTestForm({ ...testForm, questions });
+                      }}
+                    >
+                      {[0, 1, 2, 3].map((i) => (
+                        <option key={i} value={i}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              <button type="button" onClick={saveTest} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground">
+                {testEditId != null ? t('saveTestChanges') : t('addTestButton')}
+              </button>
+              {testEditId != null ? (
+                <button type="button" onClick={resetTestForm} className="px-4 py-2 rounded-lg border border-border">
+                  {t('cancelEditTest')}
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="space-y-2">
             {tests.map((te) => (
-              <div key={te.id} className="flex items-center justify-between p-4 rounded-lg border border-border">
-                <div>
+              <div key={te.id} className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-border">
+                <div className="min-w-0 flex-1">
                   <p className="font-medium">{te.title}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {te.questions.length} сұрақ
-                    {te.external_url ? ` · сыртқы: ${te.external_url}` : ''}
+                  <p className="text-sm text-muted-foreground truncate">
+                    {t('testQuestionCount').replace('{{count}}', String(te.questions.length))}
+                    {te.external_url ? ` · ${te.external_url}` : ''}
                   </p>
                 </div>
-                <button type="button" onClick={() => deleteTest(te.id)} className="p-2 text-destructive">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => beginEditTest(te)}
+                    className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent"
+                  >
+                    {t('editTestBtn')}
+                  </button>
+                  <button type="button" onClick={() => deleteTest(te.id)} className="p-2 text-destructive">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
