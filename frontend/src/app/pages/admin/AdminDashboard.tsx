@@ -15,7 +15,7 @@ export default function AdminDashboard() {
     enrollmentTrend: Array<{ month: string; students: number }>;
     coursePerformance: Array<{ course: string; completion: number }>;
   } | null>(null);
-  const [activity, setActivity] = useState<Array<{ student: string; action: string; course: string; time: string }>>([]);
+  const [activity, setActivity] = useState<Array<{ student: string; actionKey: string; course: string; time: string }>>([]);
 
   useEffect(() => {
     let c = false;
@@ -26,7 +26,7 @@ export default function AdminDashboard() {
           api<{ enrollmentTrend: Array<{ month: string; students: number }>; coursePerformance: Array<{ course: string; completion: number }> }>(
             '/api/admin/charts'
           ),
-          api<Array<{ student: string; action: string; course: string; time: string }>>('/api/admin/recent-activity'),
+          api<Array<{ student: string; actionKey: string; course: string; time: string }>>('/api/admin/recent-activity'),
         ]);
         if (!c) {
           setOverview(o as { stats: Array<{ labelKey: string; value: string; change: string; color: string }> });
@@ -125,7 +125,7 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <p className="text-foreground">
-                      <span>{row.student}</span> <span className="text-muted-foreground">{row.action}</span>
+                      <span>{row.student}</span> <span className="text-muted-foreground">{t(row.actionKey)}</span>
                     </p>
                     <p className="text-sm text-muted-foreground">{row.course}</p>
                   </div>

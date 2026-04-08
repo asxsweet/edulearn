@@ -88,20 +88,20 @@ function LessonEditorRow({
         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
         value={lesson.duration_label}
         onChange={(e) => onChange(lesson.id, { duration_label: e.target.value })}
-        placeholder="15 min"
+        placeholder={t('durationLabel')}
       />
       <textarea
         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm resize-none"
         rows={3}
         value={kp}
         onChange={(e) => setKp(e.target.value)}
-        placeholder="Негізгі ойлар (әр жолға бір)"
+        placeholder={t('keyPointsPlaceholder')}
       />
       <input
         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
         value={lesson.video_url}
         onChange={(e) => onChange(lesson.id, { video_url: e.target.value })}
-        placeholder="YouTube сілтемесі (мысалы https://www.youtube.com/watch?v=...)"
+        placeholder={t('youtubeUrlPlaceholder')}
       />
       <div className="flex flex-wrap items-center gap-2">
         <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border cursor-pointer hover:bg-accent text-sm">
@@ -146,7 +146,6 @@ export default function CourseCreation() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    deadline: '',
     durationWeeks: 6,
   });
 
@@ -176,7 +175,6 @@ export default function CourseCreation() {
         course: {
           title: string;
           description: string;
-          deadline: string | null;
           durationWeeks: number;
         };
         lessons: EditorLesson[];
@@ -187,7 +185,6 @@ export default function CourseCreation() {
       setFormData({
         title: raw.course.title,
         description: raw.course.description,
-        deadline: raw.course.deadline || '',
         durationWeeks: raw.course.durationWeeks,
       });
       setLessons(raw.lessons);
@@ -212,14 +209,12 @@ export default function CourseCreation() {
         const raw = await api<{
           title: string;
           description: string;
-          deadline: string | null;
           durationWeeks: number;
         }>('/api/admin/courses/' + id + '/raw');
         if (c) return;
         setFormData({
           title: raw.title,
           description: raw.description,
-          deadline: raw.deadline || '',
           durationWeeks: raw.durationWeeks,
         });
       } catch {
@@ -240,7 +235,6 @@ export default function CourseCreation() {
           body: JSON.stringify({
             title: formData.title,
             description: formData.description,
-            deadline: formData.deadline,
             durationWeeks: formData.durationWeeks,
           }),
         });
@@ -251,7 +245,6 @@ export default function CourseCreation() {
           body: JSON.stringify({
             title: formData.title,
             description: formData.description,
-            deadline: formData.deadline,
             durationWeeks: formData.durationWeeks,
           }),
         });
@@ -284,13 +277,13 @@ export default function CourseCreation() {
 
   const addLesson = async () => {
     if (!isEditing) {
-      window.alert('Алдымен курс мәліметін сақтаңыз');
+      window.alert(t('lessonSaveFirst'));
       return;
     }
     await api('/api/admin/courses/' + courseId + '/lessons', {
       method: 'POST',
       body: JSON.stringify({
-        title: 'Жаңа сабақ',
+        title: `${t('lessons')} ${lessons.length + 1}`,
         duration_label: '15 min',
         sort_order: lessons.length,
         key_points: [],
@@ -302,7 +295,7 @@ export default function CourseCreation() {
   };
 
   const deleteLesson = async (lessonId: number) => {
-    if (!window.confirm('Сабақты жою?')) return;
+    if (!window.confirm(t('deleteCourseConfirm'))) return;
     await api('/api/admin/lessons/' + lessonId, { method: 'DELETE' });
     await load();
   };
@@ -320,7 +313,7 @@ export default function CourseCreation() {
 
   const uploadMaterialFile = async (file: File) => {
     if (!isEditing) {
-      window.alert('Алдымен курс мәліметін сақтаңыз');
+      window.alert(t('lessonSaveFirst'));
       return;
     }
     const fd = new FormData();
@@ -341,7 +334,7 @@ export default function CourseCreation() {
   };
 
   const deleteMaterial = async (mid: number) => {
-    if (!window.confirm('Жою?')) return;
+    if (!window.confirm(t('deleteCourseConfirm'))) return;
     await api('/api/admin/materials/' + mid, { method: 'DELETE' });
     await load();
   };
@@ -350,7 +343,7 @@ export default function CourseCreation() {
     if (!isEditing) return;
     const title = newTest.title.trim();
     if (!title) {
-      window.alert('Тест атауы');
+      window.alert(t('testTitleLabel'));
       return;
     }
     const opts = newTest.o1.map((x) => x.trim()).filter(Boolean);
@@ -360,7 +353,7 @@ export default function CourseCreation() {
         : [];
     const ext = newTest.external_url.trim();
     if (questions.length === 0 && !ext) {
-      window.alert('Кем дегенде 2 жауап нұсқасы бар сұрақ немесе сыртқы сілтеме қажет');
+      window.alert(t('externalTestLinkOptional'));
       return;
     }
     await api('/api/admin/courses/' + courseId + '/tests', {
@@ -377,7 +370,7 @@ export default function CourseCreation() {
   };
 
   const deleteTest = async (tid: number) => {
-    if (!window.confirm('Тестті жою?')) return;
+    if (!window.confirm(t('deleteCourseConfirm'))) return;
     await api('/api/admin/tests/' + tid, { method: 'DELETE' });
     await load();
   };
@@ -385,7 +378,7 @@ export default function CourseCreation() {
   const addAssignment = async () => {
     if (!isEditing) return;
     if (!newAssignment.title.trim() || !newAssignment.due_date) {
-      window.alert('Тақырып және мерзім');
+      window.alert(t('courseTitle') + ' / ' + t('dueDate'));
       return;
     }
     await api('/api/admin/courses/' + courseId + '/assignments', {
@@ -397,7 +390,7 @@ export default function CourseCreation() {
   };
 
   const deleteAssignment = async (aid: number) => {
-    if (!window.confirm('Жою?')) return;
+    if (!window.confirm(t('deleteCourseConfirm'))) return;
     await api('/api/admin/assignments/' + aid, { method: 'DELETE' });
     await load();
   };
@@ -407,7 +400,7 @@ export default function CourseCreation() {
       <div>
         <h1 className="mb-2">{isEditing ? t('editCourse') : t('addCourse')}</h1>
         <p className="text-muted-foreground">
-          {isEditing ? 'Сабақтар, материалдар, тесттер, тапсырмалар' : t('statistics')}
+          {isEditing ? t('statistics') : t('statistics')}
         </p>
       </div>
 
@@ -460,17 +453,7 @@ export default function CourseCreation() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-foreground">{t('dueDate')}</label>
-              <input
-                type="date"
-                value={formData.deadline}
-                onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
-                className="w-full px-4 py-3 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-foreground">Апта саны</label>
+              <label className="text-foreground">{t('weeksCount')}</label>
               <input
                 type="number"
                 min={1}
@@ -568,27 +551,27 @@ export default function CourseCreation() {
             </p>
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder="Тест атауы"
+              placeholder={t('testTitleLabel')}
               value={newTest.title}
               onChange={(e) => setNewTest({ ...newTest, title: e.target.value })}
             />
             <input
               type="number"
               className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder="Уақыт (сек)"
+              placeholder={t('timeSecLabel')}
               value={newTest.time_limit_seconds}
               onChange={(e) => setNewTest({ ...newTest, time_limit_seconds: Number(e.target.value) || 1800 })}
             />
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder="Сыртқы тест сілтемесі (міндетті емес)"
+              placeholder={t('externalTestLinkOptional')}
               value={newTest.external_url}
               onChange={(e) => setNewTest({ ...newTest, external_url: e.target.value })}
             />
             <p className="text-sm font-medium">Бірінші сұрақ (қосымша — сыртқы сілтеме жеткілікті)</p>
             <textarea
               className="w-full px-3 py-2 rounded-lg border border-border bg-background"
-              placeholder="Сұрақ мәтіні"
+              placeholder={t('questionTextLabel')}
               value={newTest.q1}
               onChange={(e) => setNewTest({ ...newTest, q1: e.target.value })}
             />
@@ -681,7 +664,7 @@ export default function CourseCreation() {
       )}
 
       {section !== 'meta' && !isEditing && (
-        <p className="text-amber-600 text-sm">Алдымен «Курс» бөлімінде курсты жасап сақтаңыз, содан кейін осы бөлімдер ашылады.</p>
+        <p className="text-amber-600 text-sm">{t('saveCourseFirstHint')}</p>
       )}
     </div>
   );

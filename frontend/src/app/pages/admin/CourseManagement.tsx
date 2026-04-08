@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
-import { Plus, Edit, Trash2, Calendar, Users } from 'lucide-react';
+import { Plus, Edit, Trash2, Archive, RefreshCcw, Users } from 'lucide-react';
 import { api } from '../../../api/client';
 
 interface CourseAdmin {
@@ -9,7 +9,6 @@ interface CourseAdmin {
   title: string;
   students: number;
   lessons: number;
-  deadline: string | null;
   status: string;
 }
 
@@ -29,6 +28,14 @@ export default function CourseManagement() {
   const handleDelete = async (courseId: number) => {
     if (!window.confirm(t('deleteCourseConfirm'))) return;
     await api('/api/admin/courses/' + courseId, { method: 'DELETE' });
+    await load();
+  };
+
+  const setStatus = async (courseId: number, status: 'active' | 'archived') => {
+    await api('/api/admin/courses/' + courseId + '/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
     await load();
   };
 
@@ -56,7 +63,6 @@ export default function CourseManagement() {
                 <th className="text-left p-4 text-foreground">{t('courses')}</th>
                 <th className="text-left p-4 text-foreground">{t('students')}</th>
                 <th className="text-left p-4 text-foreground">{t('lessons')}</th>
-                <th className="text-left p-4 text-foreground">{t('dueDate')}</th>
                 <th className="text-left p-4 text-foreground">{t('statusLabel')}</th>
                 <th className="text-left p-4 text-foreground">{t('edit')}</th>
               </tr>
@@ -77,18 +83,12 @@ export default function CourseManagement() {
                     {course.lessons} {t('lessonsWord')}
                   </td>
                   <td className="p-4">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="w-4 h-4" />
-                      <span>{course.deadline || '—'}</span>
-                    </div>
-                  </td>
-                  <td className="p-4">
                     <span
                       className={`px-3 py-1 rounded-full text-sm ${
                         course.status === 'active' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
                       }`}
                     >
-                      {course.status}
+                      {course.status === 'active' ? t('active') : t('archived')}
                     </span>
                   </td>
                   <td className="p-4">
@@ -100,6 +100,18 @@ export default function CourseManagement() {
                       >
                         <Edit className="w-5 h-5 text-blue-500" />
                       </Link>
+                      <button
+                        type="button"
+                        onClick={() => setStatus(course.id, course.status === 'active' ? 'archived' : 'active')}
+                        className="p-2 rounded-lg hover:bg-accent transition-colors"
+                        title={course.status === 'active' ? 'Archive' : 'Activate'}
+                      >
+                        {course.status === 'active' ? (
+                          <Archive className="w-5 h-5 text-yellow-600" />
+                        ) : (
+                          <RefreshCcw className="w-5 h-5 text-green-600" />
+                        )}
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(course.id)}

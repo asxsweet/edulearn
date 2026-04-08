@@ -70,7 +70,7 @@ export default function Test() {
         method: 'POST',
         body: JSON.stringify({ answers: answerBody }),
       });
-      window.alert(`Test submitted! ${result.score}/${result.total} (${result.percent}%)`);
+      window.alert(`${t('submitted')}: ${result.score}/${result.total} (${result.percent}%)`);
       navigate(-1);
     } catch {
       /* */
@@ -92,7 +92,7 @@ export default function Test() {
       <div className="p-6 md:p-8 max-w-lg mx-auto space-y-6">
         <div className="bg-card rounded-xl p-8 border border-border shadow-sm space-y-4 text-center">
           <h1 className="text-foreground text-xl">{payload.test.title}</h1>
-          <p className="text-muted-foreground text-sm">Бұл тест сыртқы платформада өтеді.</p>
+          <p className="text-muted-foreground text-sm">{t('externalTestLabel')}</p>
           <a
             href={payload.test.externalUrl}
             target="_blank"
@@ -100,10 +100,10 @@ export default function Test() {
             className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-primary text-primary-foreground"
           >
             <ExternalLink className="w-5 h-5" />
-            Тестке өту
+            {t('startTest')}
           </a>
           <button type="button" onClick={() => navigate(-1)} className="text-sm text-muted-foreground underline">
-            Артқа
+            {t('previous')}
           </button>
         </div>
       </div>
@@ -114,7 +114,7 @@ export default function Test() {
     return (
       <div className="p-8 text-center text-muted-foreground">
         <p>{t('tests')}</p>
-        <p className="text-sm mt-2">Сұрақтар табылмады.</p>
+        <p className="text-sm mt-2">{t('notFound')}</p>
       </div>
     );
   }

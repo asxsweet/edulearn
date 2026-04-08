@@ -12,6 +12,39 @@ interface Message {
 
 export default function AIAssistant() {
   const { t, config } = useApp();
+  const localizedSubtitle = t('aiAssistantSubtitle');
+  const subtitle =
+    localizedSubtitle !== 'aiAssistantSubtitle'
+      ? localizedSubtitle
+      : config.aiAssistantSubtitle || '';
+  const localizedWelcome = t('aiWelcomeMessage');
+  const welcomeMessage =
+    localizedWelcome !== 'aiWelcomeMessage'
+      ? localizedWelcome
+      : config.aiWelcomeMessage || '';
+  const localizedProTipTitle = t('aiProTipTitle');
+  const proTipTitle =
+    localizedProTipTitle !== 'aiProTipTitle'
+      ? localizedProTipTitle
+      : config.aiProTipTitle || '';
+  const localizedProTipBody = t('aiProTipBody');
+  const proTipBody =
+    localizedProTipBody !== 'aiProTipBody'
+      ? localizedProTipBody
+      : config.aiProTipBody || '';
+
+  const translateSuggestion = (suggestion: string) => {
+    const m: Record<string, string> = {
+      'Explain what machine learning is': 'suggestExplainML',
+      'What is the difference between AI and ML?': 'suggestAiVsMl',
+      'Help me understand neural networks': 'suggestNeuralNetworks',
+      'Give me tips for the upcoming test': 'suggestUpcomingTestTips'
+    };
+    const key = m[suggestion];
+    if (!key) return suggestion;
+    const tr = t(key);
+    return tr === key ? suggestion : tr;
+  };
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -32,7 +65,7 @@ export default function AIAssistant() {
   }, []);
 
   useEffect(() => {
-    const welcome = config.aiWelcomeMessage || '';
+    const welcome = welcomeMessage || '';
     if (!welcome) return;
     setMessages([
       {
@@ -42,7 +75,7 @@ export default function AIAssistant() {
         timestamp: new Date(),
       },
     ]);
-  }, [config.aiWelcomeMessage]);
+  }, [welcomeMessage]);
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
@@ -88,7 +121,7 @@ export default function AIAssistant() {
             </div>
             <div>
               <h1 className="text-foreground">{t('aiAssistant')}</h1>
-              <p className="text-sm text-muted-foreground">{config.aiAssistantSubtitle || ''}</p>
+              <p className="text-sm text-muted-foreground">{subtitle}</p>
             </div>
           </div>
         </div>
@@ -163,15 +196,15 @@ export default function AIAssistant() {
                 onClick={() => handleSuggestionClick(suggestion)}
                 className="w-full p-3 text-left rounded-lg border border-border hover:bg-accent transition-colors text-sm"
               >
-                {suggestion}
+                {translateSuggestion(suggestion)}
               </button>
             ))}
           </div>
         </div>
 
         <div className="bg-gradient-to-br from-[#6366f1]/10 to-[#8b5cf6]/10 rounded-xl p-4 border border-primary/20">
-          <h4 className="text-foreground mb-2">{config.aiProTipTitle || ''}</h4>
-          <p className="text-sm text-muted-foreground">{config.aiProTipBody || ''}</p>
+          <h4 className="text-foreground mb-2">{proTipTitle}</h4>
+          <p className="text-sm text-muted-foreground">{proTipBody}</p>
         </div>
       </aside>
     </div>

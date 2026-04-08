@@ -202,8 +202,8 @@ export default function Settings() {
         </div>
         <div className="p-6 space-y-3">
           {[
-            { code: 'kk' as const, name: 'Қазақша', nativeName: 'Kazakh' },
-            { code: 'ru' as const, name: 'Русский', nativeName: 'Russian' },
+            { code: 'kk' as const, name: 'Kazakh', nativeName: 'Qazaqsha' },
+            { code: 'ru' as const, name: 'Russian', nativeName: 'Russkiy' },
             { code: 'en' as const, name: 'English', nativeName: 'English' },
           ].map((lang) => (
             <button

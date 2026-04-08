@@ -13,6 +13,7 @@ interface CourseRow {
   enrolled: boolean;
   lessons: number;
   duration: string;
+  unlocked: boolean;
 }
 
 export default function Courses() {
@@ -42,8 +43,8 @@ export default function Courses() {
     try {
       await api('/api/courses/' + courseId + '/enroll', { method: 'POST', body: '{}' });
       await load();
-    } catch {
-      /* handled */
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Error');
     }
   };
 
@@ -150,9 +151,10 @@ export default function Courses() {
                 <button
                   type="button"
                   onClick={(e) => enroll(e, course.id)}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                  disabled={!course.unlocked}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <span>{t('enrollNow')}</span>
+                  <span>{course.unlocked ? t('enrollNow') : t('completePreviousCourse')}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               )}

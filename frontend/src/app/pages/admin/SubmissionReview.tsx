@@ -85,7 +85,7 @@ export default function SubmissionReview() {
                     submission.status === 'graded' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
                   }`}
                 >
-                  {submission.status}
+                  {submission.status === 'graded' ? t('graded') : t('submitted')}
                 </span>
               </div>
 

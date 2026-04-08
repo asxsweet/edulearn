@@ -170,9 +170,7 @@ export async function runSeed(pool) {
   await insAsg.run(courseIds[0].id, 'Neural Network Visualization', '2026-04-04');
 
   const insEnroll = stmt(pool, `INSERT INTO enrollments (user_id, course_id, progress) VALUES (?,?,?)`);
-  for (let i = 0; i < 3; i++) {
-    await insEnroll.run(aliceId, courseIds[i].id, coursesData[i].progress);
-  }
+  await insEnroll.run(aliceId, courseIds[0].id, coursesData[0].progress);
 
   const lessonRows = await stmt(pool, `SELECT id FROM lessons WHERE course_id = ? ORDER BY sort_order`).all(
     courseIds[0].id

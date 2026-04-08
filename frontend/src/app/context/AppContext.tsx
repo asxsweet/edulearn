@@ -1,5 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { api, getToken, setToken } from '../../api/client';
+import kk from '../../i18n/kk.json';
+import ru from '../../i18n/ru.json';
+import en from '../../i18n/en.json';
 
 export type Language = 'kk' | 'ru' | 'en';
 type Theme = 'light' | 'dark';
@@ -34,6 +37,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const LANG_KEY = 'edulearn_lang';
+const I18N_MAP: Record<Language, Record<string, string>> = { kk, ru, en };
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
@@ -43,7 +47,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>('light');
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [translations, setTranslations] = useState<Record<string, string>>({});
+  const [translations, setTranslations] = useState<Record<string, string>>(I18N_MAP[language] || I18N_MAP.en);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [configLoading, setConfigLoading] = useState(true);
 
@@ -76,18 +80,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const tr = await api<Record<string, string>>(`/api/i18n/${language}`);
-        if (!cancelled) setTranslations(tr);
-      } catch {
-        if (!cancelled) setTranslations({});
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    setTranslations(I18N_MAP[language] || I18N_MAP.en);
   }, [language]);
 
   useEffect(() => {

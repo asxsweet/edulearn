@@ -56,12 +56,98 @@ const submissionUpload = multer({
   limits: { fileSize: 80 * 1024 * 1024 },
 });
 
+function timeAgoLabel(dateInput) {
+  if (!dateInput) return 'justNow';
+  const d = new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return 'justNow';
+  const diffMs = Date.now() - d.getTime();
+  const mins = Math.max(1, Math.floor(diffMs / 60000));
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function humanizeKey(key) {
+  return String(key)
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^./, (m) => m.toUpperCase());
+}
+
+const I18N_FALLBACK = {
+  en: {
+    completePreviousCourse: 'Complete previous course first',
+    markLessonDone: 'Mark as completed',
+    lessonDone: 'Completed',
+    externalTestLabel: 'External test',
+    archived: 'Archived',
+    active: 'Active',
+    studentsTrend: 'Students Trend',
+    testTitleLabel: 'Test title',
+    timeSecLabel: 'Time (sec)',
+    externalTestLinkOptional: 'External test link (optional)',
+    questionTextLabel: 'Question text',
+    lessonSaveFirst: 'Save course info first',
+    graded: 'graded',
+    notFound: 'Not found',
+    durationLabel: 'Duration',
+    keyPointsPlaceholder: 'Key points (one per line)',
+    youtubeUrlPlaceholder: 'YouTube URL (e.g. https://www.youtube.com/watch?v=...)',
+    unknownError: 'Error',
+  },
+  kk: {
+    completePreviousCourse: 'Алдыңғы курсты аяқтаңыз',
+    markLessonDone: 'Өтілді деп белгілеу',
+    lessonDone: 'Оқылды',
+    externalTestLabel: 'Сыртқы тест',
+    archived: 'Мұрағат',
+    active: 'Белсенді',
+    studentsTrend: 'Студенттер тренді',
+    testTitleLabel: 'Тест атауы',
+    timeSecLabel: 'Уақыт (сек)',
+    externalTestLinkOptional: 'Сыртқы тест сілтемесі (міндетті емес)',
+    questionTextLabel: 'Сұрақ мәтіні',
+    lessonSaveFirst: 'Алдымен курс мәліметін сақтаңыз',
+    graded: 'бағаланды',
+    notFound: 'Табылмады',
+    durationLabel: 'Ұзақтығы',
+    keyPointsPlaceholder: 'Негізгі ойлар (әр жолға бір)',
+    youtubeUrlPlaceholder: 'YouTube сілтемесі (мысалы https://www.youtube.com/watch?v=...)',
+    unknownError: 'Қате',
+  },
+  ru: {
+    completePreviousCourse: 'Сначала завершите предыдущий курс',
+    markLessonDone: 'Отметить как пройденный',
+    lessonDone: 'Пройдено',
+    externalTestLabel: 'Внешний тест',
+    archived: 'Архив',
+    active: 'Активный',
+    studentsTrend: 'Тренд студентов',
+    testTitleLabel: 'Название теста',
+    timeSecLabel: 'Время (сек)',
+    externalTestLinkOptional: 'Ссылка на внешний тест (необязательно)',
+    questionTextLabel: 'Текст вопроса',
+    lessonSaveFirst: 'Сначала сохраните данные курса',
+    graded: 'оценено',
+    notFound: 'Не найдено',
+    durationLabel: 'Длительность',
+    keyPointsPlaceholder: 'Ключевые пункты (по одному в строке)',
+    youtubeUrlPlaceholder: 'Ссылка YouTube (например https://www.youtube.com/watch?v=...)',
+    unknownError: 'Ошибка',
+  },
+};
+
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 const ALLOWED_ORIGINS = CLIENT_ORIGIN.split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+const isLocalDev = process.env.NODE_ENV !== 'production';
 
 const pool = await initDatabase();
 
@@ -71,11 +157,45 @@ app.use(
     origin(origin, callback) {
       // Allow non-browser requests (no Origin header) and listed origins.
       if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      // In local development, allow any localhost port (5173, 5174, etc.)
+      if (isLocalDev && /^https?:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
   })
 );
+
+async function recomputeEnrollmentProgress(userId, courseId) {
+  const totalRow = await stmt(pool, 'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM lessons WHERE course_id = ?').get(courseId);
+  const doneRow = await stmt(
+    pool,
+    `
+    SELECT CAST(COUNT(*) AS INTEGER) AS n
+    FROM lesson_progress lp
+    JOIN lessons l ON l.id = lp.lesson_id
+    WHERE lp.user_id = ? AND l.course_id = ? AND lp.completed = TRUE
+  `
+  ).get(userId, courseId);
+  const total = Number(totalRow?.n || 0);
+  const done = Number(doneRow?.n || 0);
+  const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+  await stmt(pool, 'UPDATE enrollments SET progress = ? WHERE user_id = ? AND course_id = ?').run(progress, userId, courseId);
+  return { total, done, progress };
+}
+
+async function getBlockingCourse(userId, targetCourseId) {
+  return stmt(
+    pool,
+    `
+    SELECT c.id, c.title, e.progress
+    FROM enrollments e
+    JOIN courses c ON c.id = e.course_id
+    WHERE e.user_id = ? AND c.status = 'active' AND c.id < ? AND e.progress < 100
+    ORDER BY c.id
+    LIMIT 1
+  `
+  ).get(userId, targetCourseId);
+}
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(uploadsRoot));
 
@@ -176,12 +296,29 @@ app.get('/api/config', async (req, res) => {
 
 app.get('/api/i18n/:locale', async (req, res) => {
   const locale = req.params.locale;
-  let rows = await stmt(pool, 'SELECT key, value FROM i18n_strings WHERE locale = ?').all(locale);
-  if (rows.length === 0 && locale !== 'en') {
-    rows = await stmt(pool, 'SELECT key, value FROM i18n_strings WHERE locale = ?').all('en');
-  }
+  const [enRows, kkRows, localeRows] = await Promise.all([
+    stmt(pool, 'SELECT key, value FROM i18n_strings WHERE locale = ?').all('en'),
+    stmt(pool, 'SELECT key, value FROM i18n_strings WHERE locale = ?').all('kk'),
+    stmt(pool, 'SELECT key, value FROM i18n_strings WHERE locale = ?').all(locale),
+  ]);
   const out = {};
-  for (const r of rows) out[r.key] = r.value;
+  for (const r of enRows) out[r.key] = r.value;
+  for (const r of kkRows) {
+    if (!out[r.key]) out[r.key] = r.value;
+  }
+  for (const r of localeRows) out[r.key] = r.value;
+  const fallback = I18N_FALLBACK[locale] || I18N_FALLBACK.en;
+  for (const [k, v] of Object.entries(fallback)) {
+    if (!out[k]) out[k] = v;
+  }
+  // If en/ru still contains Kazakh/Cyrillic leftovers, convert to neutral label.
+  if (locale === 'en' || locale === 'ru') {
+    for (const [k, v] of Object.entries(out)) {
+      if (/[ҚқӘәІіҢңҒғҮүҰұӨөҺһ]/.test(String(v))) {
+        out[k] = humanizeKey(k);
+      }
+    }
+  }
   res.json(out);
 });
 
@@ -195,14 +332,14 @@ app.get('/api/student/dashboard', authMiddleware, requireRole('student'), async 
       (SELECT CAST(COUNT(*) AS INTEGER) FROM lesson_progress lp JOIN lessons l ON l.id = lp.lesson_id
         WHERE lp.user_id = ? AND l.course_id = c.id AND lp.completed) AS lessons_done
     FROM enrollments e JOIN courses c ON c.id = e.course_id
-    WHERE e.user_id = ?
+    WHERE e.user_id = ? AND c.status = 'active'
   `
   ).all(uid, uid);
 
   const enrolledCourses = enrolled.map((r) => ({
     id: r.id,
     title: r.title,
-    progress: r.progress,
+    progress: Number(r.total_lessons) > 0 ? Math.round((Number(r.lessons_done) / Number(r.total_lessons)) * 100) : 0,
     lessons: Number(r.lessons_done),
     totalLessons: Number(r.total_lessons),
     color: r.accent_color || '#6366f1',
@@ -283,26 +420,37 @@ app.get('/api/courses', authMiddleware, requireRole('student'), async (req, res)
     pool,
     `
     SELECT c.id, c.title, c.description, c.image_emoji, c.duration_weeks,
-      e.progress, CASE WHEN e.user_id IS NOT NULL THEN 1 ELSE 0 END AS enrolled
+      e.progress, CASE WHEN e.user_id IS NOT NULL THEN 1 ELSE 0 END AS enrolled,
+      (SELECT CAST(COUNT(*) AS INTEGER) FROM lessons l WHERE l.course_id = c.id) AS total_lessons,
+      (SELECT CAST(COUNT(*) AS INTEGER) FROM lesson_progress lp JOIN lessons l ON l.id = lp.lesson_id
+        WHERE lp.user_id = ? AND l.course_id = c.id AND lp.completed) AS lessons_done
     FROM courses c
     LEFT JOIN enrollments e ON e.course_id = c.id AND e.user_id = ?
+    WHERE c.status = 'active'
     ORDER BY c.id
   `
-  ).all(uid);
+  ).all(uid, uid);
 
   const mapped = [];
+  let previousActiveCompleted = true;
   for (const r of rows) {
-    const nRow = await stmt(pool, 'SELECT CAST(COUNT(*) AS INTEGER) AS n FROM lessons WHERE course_id = ?').get(r.id);
+    const isEnrolled = !!r.enrolled && Number(r.enrolled) === 1;
+    const totalLessons = Number(r.total_lessons || 0);
+    const lessonsDone = Number(r.lessons_done || 0);
+    const progress = isEnrolled ? (totalLessons > 0 ? Math.round((lessonsDone / totalLessons) * 100) : 0) : 0;
+    const unlocked = previousActiveCompleted || isEnrolled;
     mapped.push({
       id: r.id,
       title: r.title,
       description: r.description,
       image: r.image_emoji,
-      progress: r.progress ?? 0,
-      enrolled: !!r.enrolled && Number(r.enrolled) === 1,
-      lessons: Number(nRow.n),
+      progress,
+      enrolled: isEnrolled,
+      lessons: totalLessons,
       duration: `${r.duration_weeks} weeks`,
+      unlocked,
     });
+    if (!isEnrolled || progress < 100) previousActiveCompleted = false;
   }
   res.json(mapped);
 });
@@ -310,11 +458,18 @@ app.get('/api/courses', authMiddleware, requireRole('student'), async (req, res)
 app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, res) => {
   const uid = req.user.sub;
   const courseId = Number(req.params.id);
-  const c = await stmt(pool, 'SELECT * FROM courses WHERE id = ?').get(courseId);
+  const c = await stmt(pool, 'SELECT * FROM courses WHERE id = ? AND status = ?',).get(courseId, 'active');
   if (!c) return res.status(404).json({ error: 'Course not found' });
 
   const enrollment = await stmt(pool, 'SELECT * FROM enrollments WHERE user_id = ? AND course_id = ?').get(uid, courseId);
   const isEnrolled = !!enrollment;
+  const blocker = await getBlockingCourse(uid, courseId);
+  if (isEnrolled && blocker) {
+    return res.status(403).json({ error: `Алдымен "${blocker.title}" курсын аяқтаңыз` });
+  }
+  if (isEnrolled) {
+    await recomputeEnrollmentProgress(uid, courseId);
+  }
 
   const lessonRows = await stmt(pool, `SELECT * FROM lessons WHERE course_id = ? ORDER BY sort_order`).all(courseId);
   const lessons = [];
@@ -385,6 +540,7 @@ app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, 
       lessonCount: lessons.length,
       durationWeeks: c.duration_weeks,
       enrolled: isEnrolled,
+      progress: isEnrolled && lessons.length > 0 ? Math.round((lessons.filter((x) => x.completed).length / lessons.length) * 100) : 0,
     },
     lessons,
     materials,
@@ -397,13 +553,41 @@ app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, 
 app.post('/api/courses/:id/enroll', authMiddleware, requireRole('student'), async (req, res) => {
   const uid = req.user.sub;
   const courseId = Number(req.params.id);
-  const c = await stmt(pool, 'SELECT id FROM courses WHERE id = ?').get(courseId);
+  const c = await stmt(pool, 'SELECT id, title FROM courses WHERE id = ? AND status = ?').get(courseId, 'active');
   if (!c) return res.status(404).json({ error: 'Not found' });
+  const blocker = await getBlockingCourse(uid, courseId);
+  if (blocker) {
+    return res.status(400).json({
+      error: `Алдымен "${blocker.title}" курсын толық аяқтау керек`,
+    });
+  }
   const has = await stmt(pool, `SELECT 1 AS x FROM enrollments WHERE user_id = ? AND course_id = ?`).get(uid, courseId);
   if (!has) {
     await stmt(pool, `INSERT INTO enrollments (user_id, course_id, progress) VALUES (?,?,0)`).run(uid, courseId);
+    const ls = await stmt(pool, 'SELECT id FROM lessons WHERE course_id = ?').all(courseId);
+    for (const l of ls) {
+      await stmt(pool, 'INSERT INTO lesson_progress (user_id, lesson_id, completed) VALUES (?,?,FALSE)').run(uid, l.id);
+    }
   }
   res.json({ ok: true });
+});
+
+app.patch('/api/lessons/:id/progress', authMiddleware, requireRole('student'), async (req, res) => {
+  const uid = req.user.sub;
+  const lessonId = Number(req.params.id);
+  const completed = !!req.body?.completed;
+  const row = await stmt(pool, 'SELECT id, course_id FROM lessons WHERE id = ?').get(lessonId);
+  if (!row) return res.status(404).json({ error: 'Lesson not found' });
+  const enrolled = await stmt(pool, 'SELECT user_id FROM enrollments WHERE user_id = ? AND course_id = ?').get(uid, row.course_id);
+  if (!enrolled) return res.status(403).json({ error: 'Course not enrolled' });
+  const existing = await stmt(pool, 'SELECT user_id FROM lesson_progress WHERE user_id = ? AND lesson_id = ?').get(uid, lessonId);
+  if (existing) {
+    await stmt(pool, 'UPDATE lesson_progress SET completed = ? WHERE user_id = ? AND lesson_id = ?').run(completed, uid, lessonId);
+  } else {
+    await stmt(pool, 'INSERT INTO lesson_progress (user_id, lesson_id, completed) VALUES (?,?,?)').run(uid, lessonId, completed);
+  }
+  const progressRow = await recomputeEnrollmentProgress(uid, row.course_id);
+  res.json({ ok: true, progress: progressRow.progress });
 });
 
 app.post(
@@ -598,46 +782,82 @@ app.patch('/api/me', authMiddleware, async (req, res) => {
 });
 
 app.get('/api/admin/overview', authMiddleware, requireRole('admin'), async (req, res) => {
-  const totalStudents = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM users WHERE role = 'student'`).get()).n);
-  const totalCourses = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM courses`).get()).n);
-  const submissions = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM assignment_submissions`).get()).n);
-  const avgCompletion = await stmt(pool, `SELECT AVG(completion_percent) AS a FROM course_completion_stats`).get();
-  const avgCompletionStr = avgCompletion.a != null ? `${Math.round(Number(avgCompletion.a))}%` : '0%';
-
-  const ch1 = await stmt(pool, `SELECT value FROM app_config WHERE key = 'adminChangeTotalStudents'`).get();
-  const ch2 = await stmt(pool, `SELECT value FROM app_config WHERE key = 'adminChangeTotalCourses'`).get();
-  const ch3 = await stmt(pool, `SELECT value FROM app_config WHERE key = 'adminChangeSubmissions'`).get();
-  const ch4 = await stmt(pool, `SELECT value FROM app_config WHERE key = 'adminChangeAvgCompletion'`).get();
+  const totalStudents = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM users WHERE role = 'student'`).get())?.n || 0);
+  const totalCourses = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM courses WHERE status = 'active'`).get())?.n || 0);
+  const submissions = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM assignment_submissions`).get())?.n || 0);
+  const completionRows = await stmt(pool, `SELECT progress FROM enrollments`).all();
+  const avgCompletionNum = completionRows.length
+    ? Math.round(completionRows.reduce((s, r) => s + Number(r.progress || 0), 0) / completionRows.length)
+    : 0;
+  const avgCompletionStr = `${avgCompletionNum}%`;
 
   res.json({
     stats: [
-      { labelKey: 'totalStudents', value: String(totalStudents), change: ch1?.value || '', color: 'blue' },
-      { labelKey: 'totalCourses', value: String(totalCourses), change: ch2?.value || '', color: 'purple' },
-      { labelKey: 'submissions', value: String(submissions), change: ch3?.value || '', color: 'green' },
-      { labelKey: 'avgCompletion', value: avgCompletionStr, change: ch4?.value || '', color: 'pink' },
+      { labelKey: 'totalStudents', value: String(totalStudents), change: '', color: 'blue' },
+      { labelKey: 'totalCourses', value: String(totalCourses), change: '', color: 'purple' },
+      { labelKey: 'submissions', value: String(submissions), change: '', color: 'green' },
+      { labelKey: 'avgCompletion', value: avgCompletionStr, change: '', color: 'pink' },
     ],
   });
 });
 
 app.get('/api/admin/charts', authMiddleware, requireRole('admin'), async (req, res) => {
-  const enrollmentTrend = await stmt(pool, `SELECT month_label AS month, student_count AS students FROM enrollment_trend ORDER BY id`).all();
-  const coursePerformance = await stmt(
-    pool,
-    `SELECT course_short_name AS course, completion_percent AS completion FROM course_completion_stats ORDER BY id`
-  ).all();
+  const students = await stmt(pool, `SELECT created_at FROM users WHERE role = 'student' ORDER BY created_at ASC`).all();
+  const monthly = new Map();
+  for (const s of students) {
+    const d = new Date(s.created_at || Date.now());
+    if (Number.isNaN(d.getTime())) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    monthly.set(key, (monthly.get(key) || 0) + 1);
+  }
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const enrollmentTrend = Array.from(monthly.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([k, n]) => {
+      const [y, m] = k.split('-').map(Number);
+      return { month: `${monthNames[(m || 1) - 1]} ${y}`, students: Number(n) };
+    });
+
+  const courses = await stmt(pool, `SELECT id, title FROM courses WHERE status = 'active' ORDER BY id`).all();
+  const coursePerformance = [];
+  for (const c of courses) {
+    const cnt = Number((await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE course_id = ?`).get(c.id))?.n || 0);
+    const done = Number(
+      (await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE course_id = ? AND progress >= 100`).get(c.id))?.n || 0
+    );
+    const completion = cnt > 0 ? Math.round((done / cnt) * 100) : 0;
+    coursePerformance.push({
+      course: String(c.title || '').slice(0, 16),
+      completion,
+    });
+  }
   res.json({ enrollmentTrend, coursePerformance });
 });
 
 app.get('/api/admin/recent-activity', authMiddleware, requireRole('admin'), async (req, res) => {
   const rows = await stmt(
     pool,
-    `SELECT student_name AS student, action, course_name AS course, time_ago AS time FROM recent_activity ORDER BY sort_order`
+    `
+    SELECT s.id, u.name AS student, c.title AS course, s.status, s.submitted_at
+    FROM assignment_submissions s
+    JOIN users u ON u.id = s.user_id
+    JOIN assignments a ON a.id = s.assignment_id
+    JOIN courses c ON c.id = a.course_id
+    ORDER BY s.id DESC
+    LIMIT 12
+  `
   ).all();
-  res.json(rows);
+  const out = rows.map((r) => ({
+    student: r.student,
+    actionKey: r.status === 'graded' ? 'graded' : 'submitted',
+    course: r.course,
+    time: timeAgoLabel(r.submitted_at),
+  }));
+  res.json(out);
 });
 
 app.get('/api/admin/courses', authMiddleware, requireRole('admin'), async (req, res) => {
-  const rows = await stmt(pool, `SELECT id, title, status, deadline_date FROM courses ORDER BY id`).all();
+  const rows = await stmt(pool, `SELECT id, title, status FROM courses ORDER BY id`).all();
   const out = [];
   for (const r of rows) {
     const sn = await stmt(pool, `SELECT CAST(COUNT(*) AS INTEGER) AS n FROM enrollments WHERE course_id = ?`).get(r.id);
@@ -647,7 +867,6 @@ app.get('/api/admin/courses', authMiddleware, requireRole('admin'), async (req, 
       title: r.title,
       students: Number(sn.n),
       lessons: Number(ln.n),
-      deadline: r.deadline_date,
       status: r.status,
     });
   }
@@ -669,38 +888,48 @@ app.get('/api/admin/courses/:id/raw', authMiddleware, requireRole('admin'), asyn
     title: c.title,
     description: c.description,
     durationWeeks: c.duration_weeks,
-    deadline: c.deadline_date,
     status: c.status,
   });
 });
 
 app.post('/api/admin/courses', authMiddleware, requireRole('admin'), async (req, res) => {
-  const { title, description, deadline, durationWeeks } = req.body || {};
+  const { title, description, durationWeeks } = req.body || {};
   if (!title?.trim() || !description?.trim()) {
     return res.status(400).json({ error: 'title and description required' });
   }
   const info = await stmt(
     pool,
-    `INSERT INTO courses (title, description, image_emoji, duration_weeks, status, deadline_date) VALUES (?,?,?,?, 'active', ?)`
-  ).run(title.trim(), description.trim(), '📚', Number(durationWeeks) || 6, deadline || null);
+    `INSERT INTO courses (title, description, image_emoji, duration_weeks, status) VALUES (?,?,?,?, 'active')`
+  ).run(title.trim(), description.trim(), '📚', Number(durationWeeks) || 6);
   res.json({ id: info.lastInsertRowid });
 });
 
 app.put('/api/admin/courses/:id', authMiddleware, requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);
-  const { title, description, deadline, durationWeeks } = req.body || {};
+  const { title, description, durationWeeks } = req.body || {};
   const c = await stmt(pool, `SELECT id FROM courses WHERE id = ?`).get(id);
   if (!c) return res.status(404).json({ error: 'Not found' });
   if (!title?.trim() || !description?.trim()) {
     return res.status(400).json({ error: 'title and description required' });
   }
-  await stmt(pool, `UPDATE courses SET title = ?, description = ?, deadline_date = ?, duration_weeks = ? WHERE id = ?`).run(
+  await stmt(pool, `UPDATE courses SET title = ?, description = ?, duration_weeks = ? WHERE id = ?`).run(
     title.trim(),
     description.trim(),
-    deadline || null,
     Number(durationWeeks) || 6,
     id
   );
+  res.json({ ok: true });
+});
+
+app.patch('/api/admin/courses/:id/status', authMiddleware, requireRole('admin'), async (req, res) => {
+  const id = Number(req.params.id);
+  const status = String(req.body?.status || '').trim();
+  if (!['active', 'archived'].includes(status)) {
+    return res.status(400).json({ error: 'status must be active or archived' });
+  }
+  const c = await stmt(pool, 'SELECT id FROM courses WHERE id = ?').get(id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  await stmt(pool, 'UPDATE courses SET status = ? WHERE id = ?').run(status, id);
   res.json({ ok: true });
 });
 
@@ -753,7 +982,6 @@ app.get('/api/admin/courses/:id/editor', authMiddleware, requireRole('admin'), a
       id: c.id,
       title: c.title,
       description: c.description,
-      deadline: c.deadline_date,
       durationWeeks: c.duration_weeks,
       status: c.status,
     },
