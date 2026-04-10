@@ -12,6 +12,11 @@ import { initDatabase } from './db.js';
 import { stmt } from './stmt.js';
 import { generateGroqReply, getGroqApiKey } from './groq.js';
 import { runUserAiChat } from './aiChatGate.js';
+import {
+  deleteStoredAsset,
+  isObjectStorageEnabled,
+  putPublicObject,
+} from './objectStorage.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -135,7 +140,7 @@ const COVER_EXT_BY_MIME = {
   'image/vnd.microsoft.icon': '.ico',
 };
 
-const coverImageUpload = multer({
+const coverImageUploadDisk = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       const courseId = req.params.courseId;
@@ -156,7 +161,16 @@ const coverImageUpload = multer({
   },
 });
 
-const avatarUpload = multer({
+const coverImageUploadMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//i.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
+const avatarUploadDisk = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       const uid = req.user?.sub;
@@ -177,16 +191,29 @@ const avatarUpload = multer({
   },
 });
 
-function deleteAvatarFileIfExists(avatarPath) {
-  const p = avatarPath && String(avatarPath).trim();
-  if (!p || !p.startsWith('/uploads/avatars/')) return;
-  const rel = p.replace(/^\/uploads\//, '');
-  const fp = path.join(uploadsRoot, rel);
-  try {
-    fs.unlinkSync(fp);
-  } catch {
-    /* */
-  }
+const avatarUploadMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\//i.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
+function coverUploadMiddleware(req, res, next) {
+  const u = isObjectStorageEnabled() ? coverImageUploadMemory : coverImageUploadDisk;
+  u.single('file')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+    next();
+  });
+}
+
+function avatarUploadMiddleware(req, res, next) {
+  const u = isObjectStorageEnabled() ? avatarUploadMemory : avatarUploadDisk;
+  u.single('avatar')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+    next();
+  });
 }
 
 function timeAgoLabel(dateInput) {
@@ -1118,18 +1145,24 @@ app.post(
   '/api/profile/avatar',
   authMiddleware,
   requireRole('student'),
-  (req, res, next) => {
-    avatarUpload.single('avatar')(req, res, (err) => {
-      if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
-      next();
-    });
-  },
+  avatarUploadMiddleware,
   async (req, res) => {
     const uid = req.user.sub;
     if (!req.file) return res.status(400).json({ error: 'avatar file required' });
     const prev = await stmt(pool, `SELECT avatar_path FROM users WHERE id = ?`).get(uid);
-    if (prev?.avatar_path) deleteAvatarFileIfExists(prev.avatar_path);
-    const url = `/uploads/avatars/${uid}/${req.file.filename}`;
+    if (prev?.avatar_path) await deleteStoredAsset(prev.avatar_path, uploadsRoot);
+    let url;
+    if (isObjectStorageEnabled()) {
+      const ext = COVER_EXT_BY_MIME[req.file.mimetype] || '.jpg';
+      const key = `avatars/${uid}/avatar${ext}`;
+      url = await putPublicObject({
+        key,
+        body: req.file.buffer,
+        contentType: req.file.mimetype,
+      });
+    } else {
+      url = `/uploads/avatars/${uid}/${req.file.filename}`;
+    }
     await stmt(pool, `UPDATE users SET avatar_path = ? WHERE id = ?`).run(url, uid);
     res.json({ avatarUrl: url });
   }
@@ -1138,7 +1171,7 @@ app.post(
 app.delete('/api/profile/avatar', authMiddleware, requireRole('student'), async (req, res) => {
   const uid = req.user.sub;
   const row = await stmt(pool, `SELECT avatar_path FROM users WHERE id = ?`).get(uid);
-  if (row?.avatar_path) deleteAvatarFileIfExists(row.avatar_path);
+  if (row?.avatar_path) await deleteStoredAsset(row.avatar_path, uploadsRoot);
   await stmt(pool, `UPDATE users SET avatar_path = NULL WHERE id = ?`).run(uid);
   res.json({ avatarUrl: null });
 });
@@ -1369,13 +1402,24 @@ app.post(
   '/api/admin/courses/:courseId/cover',
   authMiddleware,
   requireRole('admin'),
-  coverImageUpload.single('file'),
+  coverUploadMiddleware,
   async (req, res) => {
     const courseId = Number(req.params.courseId);
     const co = await stmt(pool, 'SELECT id FROM courses WHERE id = ?').get(courseId);
     if (!co) return res.status(404).json({ error: 'Course not found' });
     if (!req.file) return res.status(400).json({ error: 'file required' });
-    const url = `/uploads/courses/${courseId}/${req.file.filename}`;
+    let url;
+    if (isObjectStorageEnabled()) {
+      const ext = COVER_EXT_BY_MIME[req.file.mimetype] || '.jpg';
+      const key = `courses/${courseId}/cover${ext}`;
+      url = await putPublicObject({
+        key,
+        body: req.file.buffer,
+        contentType: req.file.mimetype,
+      });
+    } else {
+      url = `/uploads/courses/${courseId}/${req.file.filename}`;
+    }
     await stmt(pool, `UPDATE courses SET cover_image_path = ? WHERE id = ?`).run(url, courseId);
     res.json({ url });
   }
@@ -1386,15 +1430,7 @@ app.delete('/api/admin/courses/:courseId/cover', authMiddleware, requireRole('ad
   const row = await stmt(pool, 'SELECT cover_image_path FROM courses WHERE id = ?').get(courseId);
   if (!row) return res.status(404).json({ error: 'Course not found' });
   const p = row.cover_image_path;
-  if (p && String(p).startsWith('/uploads/')) {
-    const rel = String(p).replace(/^\/uploads\//, '');
-    const fp = path.join(uploadsRoot, rel);
-    try {
-      fs.unlinkSync(fp);
-    } catch {
-      /* */
-    }
-  }
+  if (p) await deleteStoredAsset(String(p), uploadsRoot);
   await stmt(pool, `UPDATE courses SET cover_image_path = NULL WHERE id = ?`).run(courseId);
   res.json({ ok: true });
 });
@@ -1649,7 +1685,7 @@ app.delete('/api/admin/students/:studentId', authMiddleware, requireRole('admin'
   if (!Number.isFinite(sid)) return res.status(400).json({ error: 'Invalid id' });
   const row = await stmt(pool, `SELECT id, role, avatar_path FROM users WHERE id = ?`).get(sid);
   if (!row || row.role !== 'student') return res.status(404).json({ error: 'Not found' });
-  if (row.avatar_path) deleteAvatarFileIfExists(row.avatar_path);
+  if (row.avatar_path) await deleteStoredAsset(row.avatar_path, uploadsRoot);
   await stmt(pool, `DELETE FROM users WHERE id = ? AND role = 'student'`).run(sid);
   res.json({ ok: true });
 });
