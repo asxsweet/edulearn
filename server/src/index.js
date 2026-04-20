@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { initDatabase } from './db.js';
@@ -86,6 +87,21 @@ function uniqueFilenameInDir(dir, originalName) {
   return candidate;
 }
 
+function opaqueFilename(originalName) {
+  const safe = sanitizeFilename(originalName);
+  const ext = path.extname(safe).toLowerCase();
+  const random = crypto.randomBytes(8).toString('hex');
+  return `${Date.now()}-${random}${ext}`;
+}
+
+function uniqueOpaqueFilenameInDir(dir, originalName) {
+  let candidate = opaqueFilename(originalName);
+  while (fs.existsSync(path.join(dir, candidate))) {
+    candidate = opaqueFilename(originalName);
+  }
+  return candidate;
+}
+
 function normalizeStemForMatch(name) {
   return String(name || '')
     .normalize('NFC')
@@ -126,6 +142,23 @@ function resolveStoredCourseFilePath(storedPath, courseId) {
   return p;
 }
 
+async function uploadDiskFileToObjectStorage(localPath, key, contentType) {
+  const stream = fs.createReadStream(localPath);
+  try {
+    return await putPublicObject({
+      key,
+      body: stream,
+      contentType: contentType || 'application/octet-stream',
+    });
+  } finally {
+    try {
+      fs.unlinkSync(localPath);
+    } catch {
+      /* */
+    }
+  }
+}
+
 const adminUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -138,7 +171,7 @@ const adminUpload = multer({
       const courseId = req.params.courseId;
       const dir = path.join(uploadsRoot, 'courses', String(courseId));
       file.originalname = decodeUploadFilename(file.originalname);
-      cb(null, uniqueFilenameInDir(dir, file.originalname));
+      cb(null, uniqueOpaqueFilenameInDir(dir, file.originalname));
     },
   }),
   limits: { fileSize: 80 * 1024 * 1024 },
@@ -154,7 +187,7 @@ const submissionUpload = multer({
     filename: (req, file, cb) => {
       const dir = path.join(uploadsRoot, 'submissions');
       file.originalname = decodeUploadFilename(file.originalname);
-      cb(null, uniqueFilenameInDir(dir, file.originalname));
+      cb(null, uniqueOpaqueFilenameInDir(dir, file.originalname));
     },
   }),
   limits: { fileSize: 80 * 1024 * 1024 },
@@ -1009,7 +1042,12 @@ app.post(
     const existing = await stmt(pool, `SELECT id, file_url FROM assignment_submissions WHERE user_id = ? AND assignment_id = ?`).get(uid, aid);
     let fileUrl = '';
     if (req.file) {
-      fileUrl = `/uploads/submissions/${req.file.filename}`;
+      if (isObjectStorageEnabled()) {
+        const key = `submissions/${req.file.filename}`;
+        fileUrl = await uploadDiskFileToObjectStorage(req.file.path, key, req.file.mimetype);
+      } else {
+        fileUrl = `/uploads/submissions/${req.file.filename}`;
+      }
     } else if (existing?.file_url) {
       fileUrl = existing.file_url;
     }
@@ -1429,7 +1467,13 @@ app.post(
     const c = await stmt(pool, 'SELECT id FROM courses WHERE id = ?').get(courseId);
     if (!c) return res.status(404).json({ error: 'Course not found' });
     if (!req.file) return res.status(400).json({ error: 'file required' });
-    const url = `/uploads/courses/${courseId}/${req.file.filename}`;
+    let url;
+    if (isObjectStorageEnabled()) {
+      const key = `courses/${courseId}/${req.file.filename}`;
+      url = await uploadDiskFileToObjectStorage(req.file.path, key, req.file.mimetype);
+    } else {
+      url = `/uploads/courses/${courseId}/${req.file.filename}`;
+    }
     res.json({
       url,
       originalName: req.file.originalname,
