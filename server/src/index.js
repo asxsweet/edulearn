@@ -86,6 +86,46 @@ function uniqueFilenameInDir(dir, originalName) {
   return candidate;
 }
 
+function normalizeStemForMatch(name) {
+  return String(name || '')
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9\u0400-\u04FF]+/g, '');
+}
+
+function resolveStoredCourseFilePath(storedPath, courseId) {
+  const p = String(storedPath || '').trim();
+  if (!p.startsWith('/uploads/courses/')) return p;
+  const rel = p.replace(/^\/uploads\//, '');
+  const absolute = path.join(uploadsRoot, rel);
+  if (fs.existsSync(absolute)) return p;
+
+  const dir = path.join(uploadsRoot, 'courses', String(courseId));
+  if (!fs.existsSync(dir)) return p;
+
+  const requestedName = fileBasename(p);
+  const requestedExt = path.extname(requestedName).toLowerCase();
+  let files;
+  try {
+    files = fs.readdirSync(dir, { withFileTypes: true }).filter((x) => x.isFile()).map((x) => x.name);
+  } catch {
+    return p;
+  }
+  if (!files.length) return p;
+
+  // If there is only one file with the same extension, return it as fallback.
+  const extCandidates = requestedExt ? files.filter((f) => path.extname(f).toLowerCase() === requestedExt) : files.slice();
+  if (extCandidates.length === 1) return `/uploads/courses/${courseId}/${extCandidates[0]}`;
+
+  const requestedStem = normalizeStemForMatch(requestedName);
+  if (!requestedStem) return p;
+  const stemMatches = extCandidates.filter((f) => normalizeStemForMatch(f) === requestedStem);
+  if (stemMatches.length === 1) return `/uploads/courses/${courseId}/${stemMatches[0]}`;
+
+  return p;
+}
+
 const adminUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -837,7 +877,7 @@ app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, 
   const lessons = [];
   for (const l of lessonRows) {
     const lp = await stmt(pool, 'SELECT completed FROM lesson_progress WHERE user_id = ? AND lesson_id = ?').get(uid, l.id);
-    const slidePath = l.slide_file_path || '';
+    const slidePath = resolveStoredCourseFilePath(l.slide_file_path || '', courseId);
     lessons.push({
       id: l.id,
       title: l.title,
@@ -856,7 +896,7 @@ app.get('/api/courses/:id', authMiddleware, requireRole('student'), async (req, 
     name: m.name,
     size: m.size,
     type: m.type,
-    downloadUrl: m.file_path || '',
+    downloadUrl: resolveStoredCourseFilePath(m.file_path || '', courseId),
   }));
   const externalLinks = await stmt(pool, `SELECT name, url FROM external_links WHERE course_id = ?`).all(courseId);
 
@@ -1476,14 +1516,14 @@ app.get('/api/admin/courses/:id/editor', authMiddleware, requireRole('admin'), a
       sort_order: l.sort_order,
       key_points: JSON.parse(l.key_points_json || '[]'),
       video_url: l.video_url || '',
-      slide_file_path: l.slide_file_path || '',
+      slide_file_path: resolveStoredCourseFilePath(l.slide_file_path || '', courseId),
     })),
     materials: matRows.map((m) => ({
       id: m.id,
       name: m.name,
       size_label: m.size_label,
       type_label: m.type_label,
-      file_path: m.file_path || '',
+      file_path: resolveStoredCourseFilePath(m.file_path || '', courseId),
     })),
     tests: testDetails,
     assignments: assignRows.map((a) => ({
