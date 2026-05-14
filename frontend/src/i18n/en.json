@@ -213,5 +213,15 @@
   "deleteStudent": "Delete student",
   "deleteStudentConfirm": "Delete this student permanently? All their enrollments and submissions will be removed.",
   "noCompletedCoursesYet": "No completed courses yet. Finish all lessons in a course to see it here.",
-  "program": "Program"
+  "program": "Program",
+  "programNav1": "About the course",
+  "programNav2": "Relevance",
+  "programNav3": "Goals",
+  "programNav4": "Objectives",
+  "programNav5": "Expected outcomes",
+  "programNav6": "Course structure",
+  "programNav7": "Teaching methods",
+  "programNav8": "Tools used",
+  "programNav9": "Assessment",
+  "programNav10": "34-hour thematic plan"
 }

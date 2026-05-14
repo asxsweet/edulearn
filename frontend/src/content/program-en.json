@@ -2,6 +2,7 @@
   "documentTitle": "Course syllabus",
   "sections": [
     {
+      "id": "course-about",
       "heading": "Course title",
       "paragraphs": [
         "Elective course «Fundamentals of Artificial Intelligence»",
@@ -9,6 +10,7 @@
       ]
     },
     {
+      "id": "relevance",
       "heading": "Relevance",
       "paragraphs": [
         "In today’s education system, artificial intelligence tools are increasingly embedded in learning, research, creativity, and communication. Upper-secondary students frequently use AI capabilities for text generation, image creation, audio and video processing, data analysis, translation, and information search. However, technical skills alone are not enough to use these tools effectively; students must understand how AI works, critically evaluate outputs, protect personal data, and follow norms of academic integrity.",
@@ -16,12 +18,14 @@
       ]
     },
     {
+      "id": "goals",
       "heading": "Course goal",
       "paragraphs": [
         "To help students in grades 10–11 master the elective course «Fundamentals of Artificial Intelligence», aimed at building basic concepts of AI, showing how it is used in contemporary society, in education, and in daily life, developing introductory practical skills for working with AI technologies, and strengthening critical thinking, digital literacy, creativity, and responsible technology culture."
       ]
     },
     {
+      "id": "tasks",
       "heading": "Course objectives",
       "bullets": [
         "Introduce basic concepts of artificial intelligence, machine learning, neural networks, data, algorithms, and models.",
@@ -34,6 +38,7 @@
       ]
     },
     {
+      "id": "outcomes",
       "heading": "5. Expected learning outcomes",
       "bullets": [
         "Understands the meaning of the concepts artificial intelligence, machine learning, neural network, data, algorithm, and model;",
@@ -45,18 +50,14 @@
       ]
     },
     {
-      "heading": "6. Content outline",
+      "id": "course-structure",
+      "heading": "Course structure",
       "paragraphs": [
-        "«Fundamentals of Artificial Intelligence» (34 hours)",
-        "Part 1. Introduction to artificial intelligence. The concept of AI. History and stages of development. Everyday examples. Applications in education, medicine, transport, games, security, and creativity. Differences between human and artificial intelligence.",
-        "Part 2. Working with AI tools and prompt-writing basics. Introduction to Gemini and ChatGPT. The concept of a prompt and how to compose it well. Writing text with AI, searching for information, generating ideas, and analyzing answers. Verifying, refining, and comparing AI responses. Developing critical thinking when working with information.",
-        "Part 3. Machine learning and neural networks. The concept of machine learning. Ideas of data, algorithm, model, training, and output. How does AI “learn”? Concepts of data and examples. Training an image and sound recognition model in Teachable Machine. Neural networks and their relation to the human brain. Observing neural network behavior in TensorFlow Playground.",
-        "Part 4. Generative AI and digital creativity. Creating images with AI. Working with DALL-E, Canva AI, and Adobe Firefly. Building visual products from prompts. Creating music and sound with AI. Creative tasks in Suno and Udio. Possibilities for avatars, video, and podcasts with AI.",
-        "Part 5. Responsible use of AI and ethics. Safety rules when using AI. Academic integrity and copyright. Protecting personal data. Concepts of misinformation, deepfakes, and manipulation. Checking text, images, and video with GPTZero, Copyleaks, and Hive Moderation. Culture of conscious, safe, and ethical AI use.",
-        "Part 6. The future of AI and a capstone project. Future directions of AI. The concept of AGI, new technology trends, and future professions. AI’s impact on the labor market. Identifying AI’s role in a student’s future profession. Preparing an «AI startup pitch» or a final creative project. Presenting the project, analysis, assessment, and reflection."
+        "«Fundamentals of Artificial Intelligence» (34 hours)"
       ]
     },
     {
+      "id": "teaching-methods",
       "heading": "7. Information and methodology",
       "paragraphs": [
         "The course uses the following teaching methods:"
@@ -71,18 +72,33 @@
       ]
     },
     {
+      "id": "tools-used",
       "heading": "8. Main platforms used",
       "paragraphs": [
         "Gemini, ChatGPT, Claude, Perplexity AI, Teachable Machine, TensorFlow Playground, Quick Draw, Canva AI, DALL•E, Bing Image Creator, Stable Diffusion, Adobe Firefly, Suno, Udio, HeyGen, D-ID, Narakeet, Genially, Padlet, Miro, Google Docs, Word Online, Google Lens, TinEye, GPTZero, Copyleaks, Hive Moderation."
       ]
     },
     {
+      "id": "assessment",
       "heading": "9. Assessment system",
       "paragraphs": [
         "For each topic, the student first studies a presentation, then completes a practical task, takes a test, and submits the work to the teacher. Each stage affects overall progress. Assessment is expressed as a percentage: 90–100% — «excellent», 70–89% — «good», 50–69% — «satisfactory», 0–49% — «unsatisfactory». At 100%, the student proceeds to the next topic; with a low score, the task is repeated with additional explanation."
       ]
     },
     {
+      "id": "thematic-34",
+      "heading": "34-hour thematic plan",
+      "paragraphs": [
+        "Part 1. Introduction to artificial intelligence. The concept of AI. History and stages of development. Everyday examples. Applications in education, medicine, transport, games, security, and creativity. Differences between human and artificial intelligence.",
+        "Part 2. Working with AI tools and prompt-writing basics. Introduction to Gemini and ChatGPT. The concept of a prompt and how to compose it well. Writing text with AI, searching for information, generating ideas, and analyzing answers. Verifying, refining, and comparing AI responses. Developing critical thinking when working with information.",
+        "Part 3. Machine learning and neural networks. The concept of machine learning. Ideas of data, algorithm, model, training, and output. How does AI “learn”? Concepts of data and examples. Training an image and sound recognition model in Teachable Machine. Neural networks and their relation to the human brain. Observing neural network behavior in TensorFlow Playground.",
+        "Part 4. Generative AI and digital creativity. Creating images with AI. Working with DALL-E, Canva AI, and Adobe Firefly. Building visual products from prompts. Creating music and sound with AI. Creative tasks in Suno and Udio. Possibilities for avatars, video, and podcasts with AI.",
+        "Part 5. Responsible use of AI and ethics. Safety rules when using AI. Academic integrity and copyright. Protecting personal data. Concepts of misinformation, deepfakes, and manipulation. Checking text, images, and video with GPTZero, Copyleaks, and Hive Moderation. Culture of conscious, safe, and ethical AI use.",
+        "Part 6. The future of AI and a capstone project. Future directions of AI. The concept of AGI, new technology trends, and future professions. AI’s impact on the labor market. Identifying AI’s role in a student’s future profession. Preparing an «AI startup pitch» or a final creative project. Presenting the project, analysis, assessment, and reflection."
+      ]
+    },
+    {
+      "id": "author",
       "heading": "10. About the author",
       "paragraphs": [
         "Course author: Makhmut Aruzhan Bauyrzhanqyzy",
