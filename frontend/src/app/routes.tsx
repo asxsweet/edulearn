@@ -16,6 +16,7 @@ import StudentManagement from './pages/admin/StudentManagement';
 import StudentProgress from './pages/admin/StudentProgress';
 import CourseCreation from './pages/admin/CourseCreation';
 import SubmissionReview from './pages/admin/SubmissionReview';
+import Program from './pages/Program';
 
 export const router = createBrowserRouter([
   {
@@ -87,6 +88,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'program',
+        element: (
+          <ProtectedRoute>
+            <Program />
           </ProtectedRoute>
         ),
       },

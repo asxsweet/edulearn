@@ -15,6 +15,7 @@ import {
   X,
   GraduationCap,
   FileText,
+  ScrollText,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -27,6 +28,7 @@ export default function RootLayout() {
   const studentNavItems = [
     { path: '/', icon: Home, label: t('dashboard') },
     { path: '/courses', icon: BookOpen, label: t('courses') },
+    { path: '/program', icon: ScrollText, label: t('program') },
     { path: '/ai-assistant', icon: MessageSquare, label: t('aiAssistant') },
     { path: '/profile', icon: User, label: t('profile') },
   ];
@@ -36,6 +38,7 @@ export default function RootLayout() {
     { path: '/admin/courses', icon: BookOpen, label: t('courseManagement') },
     { path: '/admin/students', icon: Users, label: t('students') },
     { path: '/admin/submissions', icon: FileText, label: t('submissions') },
+    { path: '/program', icon: ScrollText, label: t('program') },
   ];
 
   const navItems = user?.role === 'student' ? studentNavItems : adminNavItems;
@@ -43,6 +46,7 @@ export default function RootLayout() {
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';
     if (path === '/admin') return location.pathname === '/admin';
+    if (path === '/program') return location.pathname === '/program';
     return location.pathname.startsWith(path);
   };
 

@@ -212,5 +212,6 @@
   "avatarImageOnly": "Please choose an image file.",
   "deleteStudent": "Delete student",
   "deleteStudentConfirm": "Delete this student permanently? All their enrollments and submissions will be removed.",
-  "noCompletedCoursesYet": "No completed courses yet. Finish all lessons in a course to see it here."
+  "noCompletedCoursesYet": "No completed courses yet. Finish all lessons in a course to see it here.",
+  "program": "Program"
 }
